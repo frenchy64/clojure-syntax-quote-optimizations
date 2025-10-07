@@ -2,8 +2,6 @@ name: Experiment 01 - Nil Optimization
 
 on:
   push:
-    branches:
-      - copilot/**
   workflow_dispatch:
 
 jobs:
