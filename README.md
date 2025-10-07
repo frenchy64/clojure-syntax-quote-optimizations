@@ -13,21 +13,25 @@ The goal is to break down the comprehensive syntax-quote optimizations from the 
 
 ## Experiment Structure
 
-Each experiment follows a consistent structure:
+Each optimization follows a consistent structure:
 
 ```
-experiments/
-├── 01-nil-optimization.sh          # Experiment script
-├── results/
-│   └── 01-nil-optimization/        # Results directory
-│       ├── summary.txt              # Human-readable summary
-│       ├── baseline.jar             # Master branch build
-│       ├── optimized.jar            # Optimized branch build
-│       ├── baseline.size            # Baseline size in bytes
-│       ├── optimized.size           # Optimized size in bytes
-│       ├── baseline-bytecode.txt    # Sample bytecode (if available)
-│       └── optimized-bytecode.txt   # Sample bytecode (if available)
-└── README.md                        # This file
+nil-optimization/                           # Each optimization is a top-level directory
+├── README.adoc                             # Subproject documentation
+├── nil-optimization.patch                  # Git patch for the optimization
+├── build-optimized-uberjar.sh             # Script to build optimized Clojure
+└── experiments/                           # Multiple experiments for this optimization
+    ├── uberjar-comparison/                # Overall JAR size impact
+    │   ├── 01-nil-optimization.sh        # Experiment script
+    │   ├── 01-nil-optimization.md        # Experiment documentation
+    │   └── results/                       # Generated results (not committed)
+    └── if-not-macro/                      # Focused macro analysis
+        ├── IF_NOT_NIL_OPTIMIZATION_ANALYSIS.adoc
+        └── if-not-nil-scripts/            # Verification scripts
+            ├── README.md
+            ├── compare-if-not-macro-bytecode.sh
+            ├── measure-macro-expansion.sh
+            └── verify-expansion-equivalence.sh
 ```
 
 ## Running Experiments
@@ -42,7 +46,7 @@ experiments/
 ### Running Locally
 
 ```bash
-cd experiments
+cd nil-optimization/experiments/uberjar-comparison
 ./01-nil-optimization.sh
 ```
 
