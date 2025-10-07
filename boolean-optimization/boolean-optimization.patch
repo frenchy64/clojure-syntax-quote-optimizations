@@ -1,0 +1,33 @@
+From b7ee5777f342354832599426e64453dae4debab5 Mon Sep 17 00:00:00 2001
+From: GitHub Copilot <copilot@github.com>
+Date: Tue, 7 Oct 2025 22:50:58 +0000
+Subject: [PATCH] Optimize syntax-quote to make booleans self-evaluating
+
+Make true and false self-evaluating in syntax-quote by treating them like
+other self-evaluating forms (keywords, numbers, characters, strings).
+
+Instead of expanding `true to (quote true) and `false to (quote false),
+they now expand to just true and false respectively.
+Both forms evaluate to the same value, but the optimization reduces
+bytecode size and improves macro expansion performance.
+---
+ src/jvm/clojure/lang/LispReader.java | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 8d7079c..f507643 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1117,7 +1117,8 @@ public static class SyntaxQuoteReader extends AFn{
+ 		else if(form instanceof Keyword
+ 		        || form instanceof Number
+ 		        || form instanceof Character
+-		        || form instanceof String)
++		        || form instanceof String
++		        || form instanceof Boolean)
+ 			ret = form;
+ 		else
+ 			ret = RT.list(Compiler.QUOTE, form);
+-- 
+2.51.0
+

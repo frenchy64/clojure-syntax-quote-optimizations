@@ -1,14 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
-# Wrapper script for building nil-optimized Clojure uberjar
+# Wrapper script for building boolean-optimized Clojure uberjar
 #
 # Usage: ./build-optimized-uberjar.sh [output_dir]
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SHARED_SCRIPT="$REPO_ROOT/shared/build-optimized-uberjar.sh"
-PATCH_FILE="$SCRIPT_DIR/nil-optimization.patch"
+PATCH_FILE="$SCRIPT_DIR/boolean-optimization.patch"
 OUTPUT_DIR="${1:-$SCRIPT_DIR/build}"
 
 if [ ! -x "$SHARED_SCRIPT" ]; then
@@ -16,4 +16,4 @@ if [ ! -x "$SHARED_SCRIPT" ]; then
     exit 1
 fi
 
-exec "$SHARED_SCRIPT" "nil" "$PATCH_FILE" "$OUTPUT_DIR"
+exec "$SHARED_SCRIPT" "boolean" "$PATCH_FILE" "$OUTPUT_DIR"
