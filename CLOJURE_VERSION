@@ -1,0 +1,3 @@
+# Clojure version information for builds and experiments
+# This commit corresponds to Clojure 1.12.3 release
+CLOJURE_COMMIT=e6393a4063c42ddc0e0812f04464467764f0fd1e

@@ -14,7 +14,7 @@ Instead of expanding pass:[`nil] to `(quote nil)`, the optimized reader expands 
 
 **Patch file:** `nil-optimization.patch`
 
-**Target commit:** `e6393a4063c42ddc0e0812f04464467764f0fd1e` (Clojure 1.12.3 release)
+**Target commit:** See `CLOJURE_VERSION` file in repository root (Clojure 1.12.3 release)
 
 == Building the Optimized Uberjar
 
@@ -89,6 +89,7 @@ To apply this patch to a Clojure checkout:
 ```bash
 git clone https://github.com/clojure/clojure.git
 cd clojure
+# Use the commit from ../CLOJURE_VERSION file
 git checkout e6393a4063c42ddc0e0812f04464467764f0fd1e
 git apply /path/to/nil-optimization.patch
 ```

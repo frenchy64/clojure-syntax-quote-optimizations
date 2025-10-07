@@ -6,7 +6,7 @@ set -euo pipefail
 # Usage: ./build-optimized-uberjar.sh [output_dir]
 #
 # The script:
-# 1. Clones the official Clojure repository at commit e6393a4063c42ddc0e0812f04464467764f0fd1e (Clojure 1.12.3)
+# 1. Clones the official Clojure repository at the commit specified in CLOJURE_VERSION (Clojure 1.12.3)
 # 2. Applies the nil-optimization.patch
 # 3. Builds the uberjar with Maven
 # 4. Strips nondeterministic data (timestamps, etc.)
@@ -15,7 +15,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUTPUT_DIR="${1:-$SCRIPT_DIR/build}"
-CLOJURE_COMMIT="e6393a4063c42ddc0e0812f04464467764f0fd1e"
+
+# Source the Clojure version from the top-level file
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$REPO_ROOT/CLOJURE_VERSION"
+
 PATCH_FILE="$SCRIPT_DIR/nil-optimization.patch"
 
 # Create a temporary directory for the build
