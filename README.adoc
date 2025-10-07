@@ -43,12 +43,21 @@ Both evaluate to the same value, but the optimized version is:
 clojure-syntax-quote-optimizations/
 ├── README.adoc                    # This file
 ├── optimize-syntax-quote.md       # Technical motivation document
+├── shared/                        # Shared utilities and scripts
+│   ├── build-optimized-uberjar.sh # Generic build script for optimizations
+│   └── compare-uberjar.sh         # Generic uberjar comparison script
 ├── nil-optimization/              # Subproject: nil optimization
 │   ├── nil-optimization.patch     # Git patch for the optimization
-│   ├── build-optimized-uberjar.sh # Shared build script
+│   ├── build-optimized-uberjar.sh # Wrapper for shared build script
 │   └── experiments/               # Experiments for this optimization
 │       ├── uberjar-comparison/    # Overall JAR size impact
 │       └── if-not-macro/          # Specific macro analysis
+├── boolean-optimization/          # Subproject: boolean optimization
+│   ├── boolean-optimization.patch # Git patch for the optimization
+│   ├── build-optimized-uberjar.sh # Wrapper for shared build script
+│   └── experiments/               # Experiments for this optimization
+│       ├── uberjar-comparison/    # Overall JAR size impact
+│       └── when-true-macro/       # Synthetic macro analysis
 └── (future optimizations...)
 ```
 
@@ -66,8 +75,8 @@ Each optimization follows a consistent workflow:
 
 The planned sequence of optimizations, from simplest to most complex (based on CLJ-1506 and CLJ-2908):
 
-1. ✓ **Nil optimization** - Make `nil` self-evaluating (current)
-2. **Boolean literals** - Make `true` and `false` self-evaluating
+1. ✓ **Nil optimization** - Make `nil` self-evaluating (completed)
+2. ✓ **Boolean literals** - Make `true` and `false` self-evaluating (completed)
 3. **Empty collection literals** - Make `[]`, `{}`, `()`, `#{}` self-evaluating
 4. **Simple constant collections** - Optimize collections containing only constants
 5. **Constant collection lifting** - More sophisticated constant folding
@@ -102,6 +111,8 @@ When adding a new optimization:
 == See Also
 
 - link:nil-optimization/README.adoc[Nil Optimization Subproject]
-- link:nil-optimization/experiments/uberjar-comparison/01-nil-optimization.md[Uberjar Comparison]
+- link:boolean-optimization/README.adoc[Boolean Optimization Subproject]
+- link:nil-optimization/experiments/uberjar-comparison/01-nil-optimization.md[Nil Uberjar Comparison]
 - link:nil-optimization/experiments/if-not-macro/IF_NOT_NIL_OPTIMIZATION_ANALYSIS.adoc[if-not Macro Analysis]
+- link:boolean-optimization/experiments/when-true-macro/WHEN_TRUE_BOOLEAN_OPTIMIZATION_ANALYSIS.adoc[when-true Macro Analysis]
 - link:optimize-syntax-quote.md[Technical Motivation Document]
