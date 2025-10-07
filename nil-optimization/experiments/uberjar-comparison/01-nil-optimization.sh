@@ -39,7 +39,7 @@ echo "Experiment 1: Nil Optimization"
 echo "=========================================="
 echo ""
 
-# Ensure we're using Java 21 for consistency
+# Ensure we're using Java 8 for consistency (same version used to build Clojure 1.12.3)
 echo "Java version:"
 java -version 2>&1 | head -3
 echo ""

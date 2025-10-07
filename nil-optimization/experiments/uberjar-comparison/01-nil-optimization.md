@@ -132,7 +132,7 @@ The difference is subtle but accumulates across many macros in a large codebase.
 ## Measurement Methodology
 
 ### Build Configuration
-- Java Version: 21 (for consistency across builds)
+- Java Version: 8 (same version used to build Clojure 1.12.3 release)
 - Maven Profile: `local` (includes all dependencies, creates uberjar)
 - Direct Linking: Enabled (default in pom.xml)
 - AOT Compilation: All Clojure core namespaces
