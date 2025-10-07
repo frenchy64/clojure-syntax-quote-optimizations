@@ -1,0 +1,16 @@
+*.jar
+target
+clojure.iws
+clojure.ipr
+nbproject/private/
+maven-classpath
+maven-classpath.properties
+.idea/
+*.iml
+.cpcache
+.nrepl-*
+dependency-reduced-pom.xml
+
+# Experiment results (generated, don't commit)
+experiments/results/
+experiments/synthetic-benchmark-nil/results/
