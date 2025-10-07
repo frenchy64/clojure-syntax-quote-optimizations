@@ -58,6 +58,12 @@ clojure-syntax-quote-optimizations/
 │   └── experiments/               # Experiments for this optimization
 │       ├── uberjar-comparison/    # Overall JAR size impact
 │       └── when-true-macro/       # Synthetic macro analysis
+├── empty-collection-optimization/ # Subproject: empty collection optimization
+│   ├── empty-collection-optimization.patch # Git patch for the optimization
+│   ├── build-optimized-uberjar.sh # Wrapper for shared build script
+│   └── experiments/               # Experiments for this optimization
+│       ├── uberjar-comparison/    # Overall JAR size impact
+│       └── empty-vector-macro/    # Example macro analysis
 └── (future optimizations...)
 ```
 
@@ -112,7 +118,9 @@ When adding a new optimization:
 
 - link:nil-optimization/README.adoc[Nil Optimization Subproject]
 - link:boolean-optimization/README.adoc[Boolean Optimization Subproject]
+- link:empty-collection-optimization/README.adoc[Empty Collection Optimization Subproject]
 - link:nil-optimization/experiments/uberjar-comparison/01-nil-optimization.md[Nil Uberjar Comparison]
 - link:nil-optimization/experiments/if-not-macro/IF_NOT_NIL_OPTIMIZATION_ANALYSIS.adoc[if-not Macro Analysis]
 - link:boolean-optimization/experiments/when-true-macro/WHEN_TRUE_BOOLEAN_OPTIMIZATION_ANALYSIS.adoc[when-true Macro Analysis]
+- link:empty-collection-optimization/experiments/empty-vector-macro/EMPTY_COLLECTION_OPTIMIZATION_ANALYSIS.adoc[Empty Collection Optimization Analysis]
 - link:optimize-syntax-quote.md[Technical Motivation Document]

@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: GitHub Copilot <copilot@github.com>
+Date: Wed, 8 Oct 2025 00:00:00 +0000
+Subject: [PATCH] Optimize syntax-quote to make empty collections
+ self-evaluating
+
+Make empty collections ([], {}, (), #{}) self-evaluating in syntax-quote
+by treating them like other self-evaluating forms.
+
+Instead of expanding `[] to (apply vector (seq (concat))), it now expands
+to just []. Similar optimizations apply to empty maps, lists, and sets.
+All forms evaluate to the same value, but the optimization reduces
+bytecode size and improves macro expansion performance.
+---
+ src/jvm/clojure/lang/LispReader.java | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 8d7079c..e2f6b4a 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1117,7 +1117,8 @@ public static class SyntaxQuoteReader extends AFn{
+ 		else if(form instanceof Keyword
+ 		        || form instanceof Number
+ 		        || form instanceof Character
+-		        || form instanceof String)
++		        || form instanceof String
++		        || (form instanceof IPersistentCollection && RT.count(form) == 0))
+ 			ret = form;
+ 		else
+ 			ret = RT.list(Compiler.QUOTE, form);
+-- 
+2.51.0
