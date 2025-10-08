@@ -77,21 +77,38 @@ Each optimization follows a consistent workflow:
 4. **Document results**: Provide analysis documents and verification scripts
 5. **Verify checksums**: All artifacts are verified with SHA256 checksums for reproducibility
 6. **Automate testing**: Add all experiments to GitHub Actions CI for automatic testing on every push
+7. **Validate locally**: AI agents must set up their own environment and run scripts themselves to verify their work and iterate on them until errors are eliminated and the scripts perform as intended. AI agents may stub `strip-nondeterminism` if they are unable to install it to help set up their environment. **Important**: Always use the same version of Java (Java 8) as the one that was used to build the uberjar we're testing against as a baseline, as different Java versions produce significantly different bytecode
+
+=== Reference Implementation
+
+Each experiment may take inspiration from the comprehensive optimization work in https://github.com/frenchy64/clojure/pull/41[PR #41], which contains the full optimization that we are breaking down into smaller pieces. The complete patch from this PR is checked into this repository as `optimize-syntax-quote-full.patch` for reference purposes. Individual experiments extract and test specific optimizations from this broader work.
 
 == Optimization Pipeline
 
-The planned sequence of optimizations, from simplest to most complex (based on CLJ-1506 and CLJ-2908):
+The planned sequence of optimizations, organized by LispReader.java sections (see link:EXPERIMENT_PLAN.adoc[Experiment Plan] for details):
 
-1. ✓ **Nil optimization** - Make `nil` self-evaluating (completed)
-2. ✓ **Boolean literals** - Make `true` and `false` self-evaluating (completed)
-3. **Empty collection literals** - Make `[]`, `{}`, `()`, `#{}` self-evaluating
-4. **Simple constant collections** - Optimize collections containing only constants
-5. **Constant collection lifting** - More sophisticated constant folding
-6. **Mixed constant/unquote collections** - Optimize partially constant collections
-7. **Splicing optimizations** - Improve unquote-splicing handling
-8. **Complex collection patterns** - Advanced optimization patterns
+**Completed:**
+1. ✓ **Nil optimization** - Make `nil` self-evaluating
+2. ✓ **Boolean literals** - Make `true` and `false` self-evaluating
+3. ✓ **Empty collection literals** - Make `[]`, `{}`, `()`, `#{}` self-evaluating
 
-Each optimization builds understanding for the next, starting with the simplest possible change.
+**Maps (IPersistentMap):**
+4. **Singleton maps** - Optimize 1-entry maps to use map literals (in progress)
+5. **Maps with distinct constant keys** - Use map literals when keys are provably distinct
+6. **Maps without splices** - Use `(hash-map ...)` instead of concat/apply
+
+**Sets (IPersistentSet):**
+7. **Singleton sets** - Optimize 1-element sets
+8. **Sets with distinct constants** - Use set literals when elements are distinct
+9. **Sets without splices** - Use `(hash-set ...)` instead of concat/apply
+
+**Lists & Vectors:**
+10-15. Various splice and constant propagation optimizations
+
+**Constant Propagation:**
+16-17. Helper functions and constant collection quoting
+
+Each optimization is tested independently to measure its specific impact.
 
 == JIRA Ticket Context
 
@@ -124,8 +141,13 @@ The goal is to enable asking "go onto the next optimization" and have all infras
 - link:01-nil-optimization/README.adoc[Nil Optimization Subproject]
 - link:02-boolean-optimization/README.adoc[Boolean Optimization Subproject]
 - link:03-empty-collection-optimization/README.adoc[Empty Collection Optimization Subproject]
+- link:04-singleton-maps/README.adoc[Singleton Maps Optimization Subproject]
+- link:EXPERIMENT_PLAN.adoc[Complete Experiment Plan]
+- link:04-simple-constant-collections/README.adoc[Simple Constant Collections Optimization Subproject]
 - link:01-nil-optimization/experiments/uberjar-comparison/01-nil-optimization.md[Nil Uberjar Comparison]
 - link:01-nil-optimization/experiments/if-not-macro/IF_NOT_NIL_OPTIMIZATION_ANALYSIS.adoc[if-not Macro Analysis]
 - link:02-boolean-optimization/experiments/when-true-macro/WHEN_TRUE_BOOLEAN_OPTIMIZATION_ANALYSIS.adoc[when-true Macro Analysis]
 - link:03-empty-collection-optimization/experiments/empty-vector-macro/EMPTY_COLLECTION_OPTIMIZATION_ANALYSIS.adoc[Empty Collection Optimization Analysis]
+- link:04-simple-constant-collections/experiments/uberjar-comparison/01-simple-constant-collections.md[Simple Constant Collections Uberjar Comparison]
 - link:optimize-syntax-quote.md[Technical Motivation Document]
+- https://github.com/frenchy64/clojure/pull/41[PR #41: Full Optimization Implementation]

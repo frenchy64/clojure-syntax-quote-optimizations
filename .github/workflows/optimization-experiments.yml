@@ -24,6 +24,10 @@ jobs:
             title: "Empty Collection Optimization"
             dir: "03-empty-collection-optimization"
             script: "01-empty-collection-optimization.sh"
+          - name: singleton-maps
+            title: "Singleton Maps Optimization"
+            dir: "04-singleton-maps"
+            script: "01-singleton-maps.sh"
     
     steps:
     - name: Checkout repository

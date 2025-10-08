@@ -1,0 +1,424 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Wed, 8 Oct 2025 00:00:00 +0000
+Subject: [PATCH] Optimize syntax-quote for constants and collections
+
+This patch optimizes the syntax-quote reader to handle several cases more efficiently:
+
+1. Make nil, true, and false self-evaluating (no quote wrapper needed)
+2. Make empty collections ([], {}, (), #{}) self-evaluating
+3. Detect constant collections and wrap them in a single quote instead of
+   generating verbose construction code via concat/apply
+
+For example:
+- `nil => nil (instead of (quote nil))
+- `[] => [] (instead of (apply vector (seq (concat))))
+- `[1 2 3] => (quote [1 2 3]) (instead of (apply vector (seq (concat (list 1) (list 2) (list 3)))))
+
+These optimizations reduce bytecode size, improve macro expansion performance,
+and enable better constant propagation in the compiler.
+
+Based on the work in https://github.com/frenchy64/clojure/pull/41
+---
+ src/jvm/clojure/lang/LispReader.java      | 148 ++++++++++++++++++++--
+ test/clojure/test_clojure/reader.cljc     |  88 +++++++++++++
+ 2 files changed, 228 insertions(+), 8 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 8d7079cf5a..dc149e25f0 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -46,11 +46,13 @@ public class LispReader{
+ static Symbol UNQUOTE = Symbol.intern("clojure.core", "unquote");
+ static Symbol UNQUOTE_SPLICING = Symbol.intern("clojure.core", "unquote-splicing");
+ static Symbol CONCAT = Symbol.intern("clojure.core", "concat");
+-static Symbol SEQ = Symbol.intern("clojure.core", "seq");
++//static Symbol SEQ = Symbol.intern("clojure.core", "seq");
+ static Symbol LIST = Symbol.intern("clojure.core", "list");
++static Symbol LIST_STAR = Symbol.intern("clojure.core", "list*");
+ static Symbol APPLY = Symbol.intern("clojure.core", "apply");
+ static Symbol HASHMAP = Symbol.intern("clojure.core", "hash-map");
+ static Symbol HASHSET = Symbol.intern("clojure.core", "hash-set");
++static Symbol VEC = Symbol.intern("clojure.core", "vec");
+ static Symbol VECTOR = Symbol.intern("clojure.core", "vector");
+ static Symbol WITH_META = Symbol.intern("clojure.core", "with-meta");
+ static Symbol META = Symbol.intern("clojure.core", "meta");
+@@ -1093,23 +1095,100 @@ else if(form instanceof IPersistentCollection)
+ 			else if(form instanceof IPersistentMap)
+ 				{
+ 				IPersistentVector keyvals = flattenMap(form);
+-				ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
++				ISeq seq = keyvals.seq();
++				// `{~@k ~@v} => (apply hash-map (concat k v))
++				if(hasSplice(seq))
++					ret = RT.list(APPLY, HASHMAP, RT.cons(CONCAT, sqExpandList(seq)));
++				// `{} => {}
++				else if(seq == null)
++					ret = PersistentArrayMap.EMPTY;
++				// `{k v} => {`k `v}
++				else if(seq.count() == 2)
++					ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
++				// `{k v ...} => (hash-map k v ...)
++				//TODO if keys are all constants we can expand to {k v ...}, see `map constant keys` test
++				else
++					ret = RT.cons(HASHMAP, sqExpandFlat(seq));
+ 				}
+ 			else if(form instanceof IPersistentVector)
+ 				{
+-				ret = RT.list(APPLY, VECTOR, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentVector) form).seq()))));
++				ISeq seq = ((IPersistentVector) form).seq();
++				if(hasSplice(seq))
++					// `[~@v] => (vec v)
++					if(seq.count() == 1)
++						ret = RT.cons(VEC, sqExpandList(seq));
++					// `[a b ~@c] => (apply vector a b c)
++					else if(hasOnlyTrailingSplice(seq))
++						ret = RT.cons(APPLY, RT.cons(VECTOR, sqExpandFlat(seq)));
++					// `[~@a b ~@c] => (vec (concat a [b] c))
++					// idea: (-> (vec a) (conj b) (into c))
++					else
++						ret = RT.list(VEC, RT.cons(CONCAT, sqExpandList(seq)));
++				else
++					{
++					ISeq flat = sqExpandFlat(seq);
++					// `[] => []
++					if(seq == null)
++						ret = PersistentVector.EMPTY;
++					// `[:a 1 'b] => '[:a 1 b]
++					else if(isAllQuoteLiftable(flat))
++						ret = RT.list(QUOTE, LazilyPersistentVector.create(sqLiftQuoted(flat)));
++					// `[a ~b c] => [`a b `c]
++					else
++						ret = LazilyPersistentVector.create(flat);
++					}
+ 				}
+ 			else if(form instanceof IPersistentSet)
+ 				{
+-				ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentSet) form).seq()))));
++				ISeq seq = ((IPersistentSet) form).seq();
++				// `#{~@a b ~@c} => (apply hash-set (concat a [b] c))
++				// optimization ideas:
++				// - use (clojure.core/set ..) instead of (apply hash-set ..)
++				// - use (-> (set a) (conj b) (into c))
++				// - remove redundant (concat a) => a
++				// - if has just trailing splice, use fixed args of hash-set
++				//   - `#{~@a ~b c} => (apply hash-set b `c a)
++				if(hasSplice(seq))
++					ret = RT.list(APPLY, HASHSET, RT.cons(CONCAT, sqExpandList(seq)));
++				// `#{} => #{}
++				else if(seq == null)
++					ret = PersistentHashSet.EMPTY;
++				// `#{a ~b c} => (hash-set `a b `c)
++				// TODO if distinct, compile to set literal: `#{a ~b c} => '#{a b c}
++				else
++					ret = RT.cons(HASHSET, sqExpandFlat(seq));
+ 				}
+ 			else if(form instanceof ISeq || form instanceof IPersistentList)
+ 				{
+ 				ISeq seq = RT.seq(form);
++				// `() => ()
+ 				if(seq == null)
+-					ret = RT.cons(LIST,null);
++					ret = PersistentList.EMPTY;
++				else if(hasSplice(seq))
++					{
++					// `(~a b ~@c) => (list* a `b c)
++					if(hasOnlyTrailingSplice(seq))
++						ret = RT.cons(LIST_STAR, sqExpandFlat(seq));
++					// `(~@a b ~@c) => (list* (concat a [`b] c))
++					// using list* instead of seq here to handle (~@a ~@b) when a=() b=().
++					// since (seq (concat () ())) => nil.
++					//TODO use list* leading args until first splice.
++					// e.g., `(deftype* ~1 ~2 ~3 ~4 :implements ~5 ~@v1 ~@v2)
++					//       => (list* `deftype* 1 2 3 4 `:implements 5 (concat v1 v2))
++					// see "list* leading args" test
++					else
++						ret = RT.list(LIST_STAR, RT.cons(CONCAT, sqExpandList(seq)));
++					}
+ 				else
+-					ret = RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq)));
++					{
++					ISeq flat = sqExpandFlat(seq);
++					// `(:a 1 'b) => '(:a 1 b)
++					if(isAllQuoteLiftable(flat))
++						ret = RT.list(QUOTE, sqLiftQuoted(flat));
++					// `(a ~b c) => (list `a b `c)
++					else
++						ret = RT.cons(LIST, flat);
++					}
+ 				}
+ 			else
+ 				throw new UnsupportedOperationException("Unknown Collection type");
+@@ -1117,7 +1196,9 @@ else if(form instanceof ISeq || form instanceof IPersistentList)
+ 		else if(form instanceof Keyword
+ 		        || form instanceof Number
+ 		        || form instanceof Character
+-		        || form instanceof String)
++		        || form instanceof String
++		        // `nil => nil, before (quote nil)
++		        || form == null)
+ 			ret = form;
+ 		else
+ 			ret = RT.list(Compiler.QUOTE, form);
+@@ -1132,17 +1213,168 @@ else if(form instanceof Keyword
+ 		return ret;
+ 	}
+ 
++	// returns true iff only the final seq elem is ~@.
++	// throws if seq has no splices.
++	private static boolean hasOnlyTrailingSplice(ISeq seq) {
++		for(; seq != null; seq = seq.next())
++			{
++			if(isUnquoteSplicing(seq.first()))
++				return seq.next() == null;
++			}
++		throw Util.runtimeException("expected splice");
++	}
++
++	// returns true if form is or can be converted to a constant.
++	private static boolean isQuoteLiftable(Object form) {
++		if(form instanceof Keyword
++				|| form instanceof Number
++				|| form instanceof Character
++				|| form instanceof String
++				|| form == null)
++			return true;
++		else if(form instanceof IPersistentVector)
++			{
++			// [:a 1 'b] => true (transform to (quote [:a 1 b]))
++			// [a b c]   => false
++			return isAllQuoteLiftable(RT.seq(form));
++			}
++		else if(form instanceof ISeq || form instanceof IPersistentList)
++			{
++			ISeq seq = RT.seq(form);
++			// () => true (already constant)
++			if(seq == null)
++				return true;
++			// (quote X) => true (already constant)
++			else if(seq.count() == 2 && Util.equals(RT.first(form),QUOTE))
++				return true;
++			// (+ 1 2) => false
++			else
++				return false;
++			}
++		else
++			return false;
++	}
++
++	// transform form as if it was already (syntax) quoted.
++	//TODO maps
++	private static Object liftQuoted(Object form) {
++		if(form instanceof Keyword
++		    || form instanceof Number
++		    || form instanceof Character
++		    || form instanceof String
++		    || form == null
++		    || form instanceof IPersistentVector)
++		  return form;
++		else if(form instanceof ISeq || form instanceof IPersistentList)
++		  {
++		  ISeq seq = RT.seq(form);
++		  if(seq == null)
++		    return form;
++		  else if(seq.count() == 2 && Util.equals(RT.first(form),QUOTE))
++		    return RT.second(seq);
++		  else
++		    throw Util.runtimeException("cannot lift "+form);
++		  }
++		else
++		  throw Util.runtimeException("cannot lift"+form);
++	}
++
++	// returns true iff all seq elems can be converted to constants
++	private static boolean isAllQuoteLiftable(ISeq seq) {
++		for(; seq != null; seq = seq.next())
++			{
++			if(!isQuoteLiftable(seq.first()))
++				return false;
++			}
++		return true;
++	}
++
++	// returns true iff seq contains ~@
++	private static boolean hasSplice(ISeq seq) {
++		for(; seq != null; seq = seq.next())
++			{
++			if(isUnquoteSplicing(seq.first()))
++				return true;
++			}
++		return false;
++	}
++
++	// transform each element of seq as if seq was already (syntax) quoted.
++	// ~ and ~@ not allowed.
++	// e.g., sqLiftQuoted(('a 1 :b)) => (a 1 :b)
++	private static ISeq sqLiftQuoted(ISeq seq) {
++		PersistentVector ret = PersistentVector.EMPTY;
++		for(; seq != null; seq = seq.next())
++			{
++			Object item = seq.first();
++			if(isUnquote(item) || isUnquoteSplicing(item))
++				throw Util.runtimeException("cannot lift unquoted");
++			else
++				ret = ret.cons(liftQuoted(item));
++			}
++		return ret.seq();
++	}
++
++	// treat ~@ as if it was ~. assumes caller has analyzed ~@ positions beforehand.
++	// useful for generating list* calls if you know only the last elem is ~@.
++	private static ISeq sqExpandFlat(ISeq seq) {
++		PersistentVector ret = PersistentVector.EMPTY;
++		for(; seq != null; seq = seq.next())
++			{
++			Object item = seq.first();
++			if(isUnquote(item) || isUnquoteSplicing(item))
++				// add splice as collection so it can be passed to list*
++				ret = ret.cons(RT.second(item));
++			else
++				ret = ret.cons(syntaxQuote(item));
++			}
++		return ret.seq();
++	}
++
++	// transform each element of seq as if seq was already (syntax) quoted.
++	// ~ and ~@ allowed.
++	// sqExpandList((~@a b ~@c ~d)) => (a `[b] c [d])
+ 	private static ISeq sqExpandList(ISeq seq) {
+ 		PersistentVector ret = PersistentVector.EMPTY;
+ 		for(; seq != null; seq = seq.next())
+ 			{
+ 			Object item = seq.first();
+-			if(isUnquote(item))
+-				ret = ret.cons(RT.list(LIST, RT.second(item)));
+-			else if(isUnquoteSplicing(item))
++			if(isUnquoteSplicing(item))
++				{
+ 				ret = ret.cons(RT.second(item));
++				}
+ 			else
+-				ret = ret.cons(RT.list(LIST, syntaxQuote(item)));
++				{
++				//group contiguous values between unquote-splices
++				// [1 2 ~@a 3 4] => [[1 2] a [3 4]]
++				// TODO if all quoted, lift to group level
++				IPersistentVector group = PersistentVector.EMPTY;
++				while(true)
++					{
++					if(isUnquote(item))
++						group = group.cons(RT.second(item));
++					else
++						group = group.cons(syntaxQuote(item));
++					seq = seq.next();
++					if(seq != null)
++						{
++						item = seq.first();
++						if(isUnquoteSplicing(item))
++							{
++							ret = ret.cons(group);
++							ret = ret.cons(RT.second(item));
++							break;
++							}
++						}
++					else
++						{
++						ret = ret.cons(group);
++						break;
++						}
++					}
++				}
++			if(seq == null)
++				break;
+ 			}
+ 		return ret.seq();
+ 	}
+diff --git a/test/clojure/test_clojure/reader.cljc b/test/clojure/test_clojure/reader.cljc
+index a0e1f1f13e..70f7131827 100644
+--- a/test/clojure/test_clojure/reader.cljc
++++ b/test/clojure/test_clojure/reader.cljc
+@@ -22,6 +22,7 @@
+                                 read-instant-calendar
+                                 read-instant-timestamp]])
+   (:require clojure.walk
++            clojure.test-helper ;; thrown-with-cause-msg?
+             [clojure.edn :as edn]
+             [clojure.test.generative :refer (defspec)]
+             [clojure.test-clojure.generators :as cgen]
+@@ -800,3 +801,76 @@
+   (eval (-> "^{:line 42 :column 99} (defn explicit-line-numbering [])" str->lnpr read))
+   (is (= {:line 42 :column 99}
+          (-> 'explicit-line-numbering resolve meta (select-keys [:line :column])))))
++
++(deftest expansion-tests
++  (binding [*ns* (the-ns 'clojure.test-clojure.reader)]
++    (is (= [] '`[]))
++    (is (= '[1 a] '`[1 ~a]))
++    (is (= '[local-variable] '`[~local-variable]))
++    (is (= '(clojure.core/vec local-variable) '`[~@local-variable]))
++    ;; TODO could also introduce clojure.core/set as a runtime dep, see note in clojure.lang.LispReader/syntaxQuote
++    (is (= #{} '`#{}))
++    (is (= ;#{a} ;;FIXME
++           '(clojure.core/hash-set a)
++           '`#{~a}))
++    (is (= ;'(clojure.core/apply clojure.core/hash-set a) ;;FIXME
++           '(clojure.core/apply clojure.core/hash-set (clojure.core/concat a))
++           '`#{~@a}))
++    (is (contains? #{'(clojure.core/hash-set a b)
++                     '(clojure.core/hash-set b a)}
++                   '`#{~a ~b}))
++    (is (contains?
++          #{'(clojure.core/apply clojure.core/hash-set (clojure.core/concat a b))
++            '(clojure.core/apply clojure.core/hash-set (clojure.core/concat b a))}
++          '`#{~@a ~@b}))
++    (is (= () '`()))
++    (is (= '(clojure.core/list 1 local-variable) '`(1 ~local-variable)))
++    (testing "list* leading args"
++      (is (= ;'(clojure.core/list* 1 (clojure.core/concat local-variable [2])) ;;FIXME
++             '(clojure.core/list* (clojure.core/concat [1] local-variable [2]))
++             '`(1 ~@local-variable 2))))
++    (is (= '(clojure.core/list* 1 local-variable) '`(1 ~@local-variable)))
++    (is (= '(clojure.core/list* local-variable) '`(~@local-variable)))
++    (is (= {} '`{}))
++    (is (= '{local-variable1 local-variable2} '`{~local-variable1 ~local-variable2}))
++    (testing "map constant keys"
++      ; FIXME if all keys are constant, should expand to a map literal
++      ; here, '{:a local-variable2 :b local-variable4}
++      (is (contains? 
++             #{'(clojure.core/hash-map :a local-variable2 :b local-variable4)
++               '(clojure.core/hash-map :b local-variable4 :a local-variable2)}
++             '`{:a ~local-variable2 :b ~local-variable4})))
++    ;; TODO should these cases expand to map literals? which cases are we trying to avoid?
++    ;; consider expressions like (let [a :a] `{:a 1 ~a 2})
++    (testing "map almost constant keys"
++      (is (contains?
++            #{'(clojure.core/hash-map :a local-variable2 'clojure.test-clojure.reader/a local-variable4)
++              '(clojure.core/hash-map 'clojure.test-clojure.reader/a local-variable4 :a local-variable2)}
++            '`{:a ~local-variable2 a ~local-variable4}))
++      (is (= '(clojure.core/hash-map local-variable1 local-variable2 local-variable3 local-variable4)
++             '`{~local-variable1 ~local-variable2 ~local-variable3 ~local-variable4})))
++    (is (= '(clojure.core/apply clojure.core/hash-map (clojure.core/concat local-variable1 local-variable2))
++           '`{~@local-variable1 ~@local-variable2}))
++    (is (= 42 '`42))
++    (is (= :a '`:a))
++    (is (= \a '`\a))
++    (is (= "a" '`"a"))
++    (is (nil? '`nil))
++    (is (= "(quote #\"a\")"
++           ;"#\"a\"" ;;FIXME
++           (pr-str '`#"a")))
++    ;;FIXME is this right?
++    (is (= "(quote (quote #\"a\"))" (pr-str '`'#"a")))
++    ;; demonstrates liftQuoted strategy. otherwise would be:
++    ;;   (clojure.core/list 'clojure.core/let [foo 42] (clojure.core/list 'clojure.core/+ 'clojure.test-clojure.reader/foo 'clojure.test-clojure.reader/foo))
++    ;; notice (list '+ 'foo 'foo) is optimized to '(+ foo foo)
++    (is (= '(clojure.core/list 'clojure.core/let [foo 42] '(clojure.core/+ clojure.test-clojure.reader/foo clojure.test-clojure.reader/foo))
++           '`(let [~foo 42] (+ foo foo))))
++    (is (= '(quote (nil)) '`(nil)))
++    (is (= '(quote foo) '`~'foo))
++    (is (= '(quote (foo foo)) (do '`(~'foo ~'foo))))
++    ;;TODO use gensym
++    (is (= ;;FIXME '(clojure.core/let [{b__35__auto__ :c, :keys [a]} user/foo] (clojure.core/+ b__35__auto__ (clojure.core/identity a)))
++           ;; requires hash map optimization for known keys
++           '(clojure.core/list 'clojure.core/let [(clojure.core/hash-map 'b__35__auto__ :c :keys '[a]) 'clojure.test-clojure.reader/foo] '(clojure.core/+ b__35__auto__ (clojure.core/identity a)))
++           '`(let [{~'b__35__auto__ :c :keys [~'a]} foo] (+ ~'b__35__auto__ (identity ~'a)))))))
