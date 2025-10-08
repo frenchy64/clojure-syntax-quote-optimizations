@@ -14,7 +14,7 @@ SUBPROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 REPO_ROOT="$(cd "$SUBPROJECT_ROOT/.." && pwd)"
 SHARED_SCRIPT="$REPO_ROOT/shared/compare-uberjar.sh"
 BUILD_SCRIPT="$SUBPROJECT_ROOT/build-optimized-uberjar.sh"
-RESULTS_DIR="$SCRIPT_DIR/results/01-singleton-maps"
+RESULTS_DIR="$SCRIPT_DIR/results/01-singleton-maps-optimization"
 
 if [ ! -x "$SHARED_SCRIPT" ]; then
     echo "ERROR: Shared comparison script not found or not executable: $SHARED_SCRIPT"

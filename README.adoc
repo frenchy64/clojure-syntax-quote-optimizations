@@ -77,7 +77,7 @@ Each optimization follows a consistent workflow:
 4. **Document results**: Provide analysis documents and verification scripts
 5. **Verify checksums**: All artifacts are verified with SHA256 checksums for reproducibility
 6. **Automate testing**: Add all experiments to GitHub Actions CI for automatic testing on every push
-7. **Validate locally**: AI agents must set up their own environment and run scripts themselves to verify their work and iterate on them until errors are eliminated and the scripts perform as intended. AI agents may stub `strip-nondeterminism` if they are unable to install it to help set up their environment
+7. **Validate locally**: AI agents must set up their own environment and run scripts themselves to verify their work and iterate on them until errors are eliminated and the scripts perform as intended. AI agents may stub `strip-nondeterminism` if they are unable to install it to help set up their environment. **Important**: Always use the same version of Java (Java 8) as the one that was used to build the uberjar we're testing against as a baseline, as different Java versions produce significantly different bytecode
 
 === Reference Implementation
 
