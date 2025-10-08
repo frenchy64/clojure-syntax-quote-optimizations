@@ -28,7 +28,7 @@ For sets without top-level splices, we can avoid the overhead of `concat`, `seq`
 
 **Constraint:** This optimization only applies when there are no top-level splices (`~@`) in the set.
 
-**Patch file:** `sets-without-splices.patch`
+**Patch file:** `sets-without-splices.patch` (18 lines: 17 insertions, 1 deletion)
 
 **Target commit:** See `CLOJURE_VERSION` file in repository root (Clojure 1.12.3 release)
 

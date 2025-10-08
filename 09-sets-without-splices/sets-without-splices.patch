@@ -1,17 +1,17 @@
-From 5d263bc83316e49e0e0c2a4d4cf5e16a08413714 Mon Sep 17 00:00:00 2001
+From f7ef8327cb55bf05f6477a3b6e73e23577d832dc Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
-Date: Wed, 8 Oct 2025 07:11:16 +0000
+Date: Wed, 8 Oct 2025 14:50:29 +0000
 Subject: [PATCH] Optimize syntax-quote for sets without splices (corrected)
 
 ---
- src/jvm/clojure/lang/LispReader.java | 19 ++++++++++++++++++-
- 1 file changed, 18 insertions(+), 1 deletion(-)
+ src/jvm/clojure/lang/LispReader.java | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079c..b258503 100644
+index 8d7079c..01185c3 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
-@@ -1101,7 +1101,24 @@ public static class SyntaxQuoteReader extends AFn{
+@@ -1101,7 +1101,23 @@ public static class SyntaxQuoteReader extends AFn{
  				}
  			else if(form instanceof IPersistentSet)
  				{
@@ -33,7 +33,6 @@ index 8d7079c..b258503 100644
 +				// `#{a b c} => (hash-set `a `b `c)
 +				else
 +					ret = RT.cons(HASHSET, sqExpandList(seq));
-+				}
  				}
  			else if(form instanceof ISeq || form instanceof IPersistentList)
  				{
