@@ -1,20 +1,32 @@
-From 98c45c6c675588862deae302ce49fe6ecda0d3d2 Mon Sep 17 00:00:00 2001
+From 5e58fcf3dc179ff44d2cc80a3b301deca5319793 Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
-Date: Wed, 8 Oct 2025 06:15:00 +0000
+Date: Wed, 8 Oct 2025 06:46:00 +0000
 Subject: [PATCH] Optimize syntax-quote for singleton sets
 
-This patch optimizes sets with exactly one element to use set literals
-instead of (apply hash-set (seq (concat ...))). Singleton sets are simple
-enough that they can be directly represented as literals.
 ---
- src/jvm/clojure/lang/LispReader.java | 37 ++++++++++++++++++++++++++++++++++--
- 1 file changed, 35 insertions(+), 2 deletions(-)
+ src/jvm/clojure/lang/LispReader.java | 46 ++++++++++++++++++++++++++--
+ 1 file changed, 44 insertions(+), 2 deletions(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079cf..9af2c1d5 100644
+index 8d7079cf..f0dc67f5 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
-@@ -1098,7 +1098,16 @@ public static class SyntaxQuoteReader extends AFn{
+@@ -1093,7 +1093,12 @@ public static class SyntaxQuoteReader extends AFn{
+ 			else if(form instanceof IPersistentMap)
+ 				{
+ 				IPersistentVector keyvals = flattenMap(form);
+-				ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
++				ISeq seq = keyvals.seq();
++				// Optimize singleton maps: `{:a ~x} => {:a x}
++				if(seq != null && seq.count() == 2 && !hasSplice(seq))
++					ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
++				else
++					ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
+ 				}
+ 			else if(form instanceof IPersistentVector)
+ 				{
+@@ -1101,7 +1106,18 @@ public static class SyntaxQuoteReader extends AFn{
+ 				}
  			else if(form instanceof IPersistentSet)
  				{
 -				ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentSet) form).seq()))));
@@ -33,10 +45,11 @@ index 8d7079cf..9af2c1d5 100644
  				}
  			else if(form instanceof ISeq || form instanceof IPersistentList)
  				{
-@@ -1147,6 +1156,30 @@ public static class SyntaxQuoteReader extends AFn{
+@@ -1147,6 +1163,32 @@ public static class SyntaxQuoteReader extends AFn{
  		return ret.seq();
  	}
  
++
 +	// returns true iff seq contains ~@
 +	private static boolean hasSplice(ISeq seq) {
 +		for(; seq != null; seq = seq.next())
@@ -61,8 +74,10 @@ index 8d7079cf..9af2c1d5 100644
 +		return ret.seq();
 +	}
 +
++
  	private static IPersistentVector flattenMap(Object form){
  		IPersistentVector keyvals = PersistentVector.EMPTY;
  		for(ISeq s = RT.seq(form); s != null; s = s.next())
 -- 
 2.51.0
+
