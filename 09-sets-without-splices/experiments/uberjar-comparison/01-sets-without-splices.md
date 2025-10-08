@@ -44,23 +44,18 @@ The patch modifies the `IPersistentSet` case in `LispReader.java`:
 
 ```java
 ISeq seq = ((IPersistentSet) form).seq();
-// `#{~@a b ~@c} => (apply hash-set (concat a [b] c))
-if(hasSplice(seq))
-    ret = RT.list(APPLY, HASHSET, RT.cons(CONCAT, sqExpandList(seq)));
 // `#{} => #{}
-else if(seq == null)
+if(seq == null)
     ret = PersistentHashSet.EMPTY;
 // `#{a} => #{`a}
 else if(seq.count() == 1)
-    ret = PersistentHashSet.create(RT.toArray(sqExpandFlat(seq)));
-// `#{a ~b c} => (hash-set `a b `c)
+    ret = PersistentHashSet.create(RT.toArray(syntaxQuote(seq.first())));
+// `#{a b c} => (hash-set `a `b `c)
 else
-    ret = RT.cons(HASHSET, sqExpandFlat(seq));
+    ret = RT.cons(HASHSET, sqExpandList(seq));
 ```
 
-Helper functions:
-- `hasSplice(ISeq seq)` - Detects top-level splices (`~@`)
-- `sqExpandFlat(ISeq seq)` - Flattens for use with direct calls
+This minimal patch uses only existing functions from the codebase (`syntaxQuote` and `sqExpandList`).
 
 ## Results
 

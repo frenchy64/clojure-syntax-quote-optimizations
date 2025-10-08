@@ -28,21 +28,14 @@ The patch modifies the `IPersistentSet` case in `syntaxQuote()` method of `LispR
 
 ```java
 ISeq seq = ((IPersistentSet) form).seq();
-// `#{~@a b ~@c} => (apply hash-set (concat a [b] c))
-if(hasSplice(seq))
-    ret = RT.list(APPLY, HASHSET, RT.cons(CONCAT, sqExpandList(seq)));
-// `#{} => #{}
-else if(seq == null)
-    ret = PersistentHashSet.EMPTY;
 // `#{a} => #{`a}
-else if(seq.count() == 1)
-    ret = PersistentHashSet.create(RT.toArray(sqExpandFlat(seq)));
+if(seq != null && seq.count() == 1)
+    ret = PersistentHashSet.create(RT.toArray(syntaxQuote(seq.first())));
 else
     ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
 ```
 
-Helper functions added (shared with map optimizations):
-- `hasSplice(ISeq seq)` - Returns true if seq contains `~@`
+This is a minimal patch that only optimizes singleton sets. It uses the existing `syntaxQuote` and `sqExpandList` functions from the codebase, requiring no additional helper functions.
 - `sqExpandFlat(ISeq seq)` - Flattens seq treating `~@` as `~`
 
 == Building the Optimized Uberjar
