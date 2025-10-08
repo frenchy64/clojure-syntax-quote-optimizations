@@ -11,12 +11,20 @@ This document outlines the planned experiments for systematically testing syntax
 1. ✅ **Nil Optimization** (`01-nil-optimization`) - Make `nil` self-evaluating
 2. ✅ **Boolean Optimization** (`02-boolean-optimization`) - Make `true` and `false` self-evaluating  
 3. ✅ **Empty Collection Optimization** (`03-empty-collection-optimization`) - Make `[]`, `{}`, `()`, `#{}` self-evaluating
+4. ✅ **Singleton Maps** (`04-singleton-maps`) - Optimize 1-entry maps to use map literals
+5. ⏭️  **Maps with Distinct Constant Keys** - Marked as TODO in full patch, not yet implemented
+6. ✅ **Maps without Splices** (`06-maps-without-splices`) - Use `(hash-map k v ...)` instead of concat/apply
+7. ✅ **Singleton Sets** (`07-singleton-sets`) - Optimize 1-element sets to use set literals
+8. ⏭️  **Sets with Distinct Constants** - Marked as TODO in full patch, not yet implemented  
+9. ✅ **Maps without Splices** (`09-sets-without-splices`) - Use `(hash-set e ...)` instead of concat/apply
 
 == Planned Experiments: Maps (IPersistentMap)
 
 The map optimization section in LispReader.java contains several sub-optimizations that can be tested independently:
 
-=== 04. Singleton Maps (NEXT)
+=== 04. Singleton Maps ✅ COMPLETED
+
+**Status:** Implementation complete, patch verified, experiment scripts ready.
 
 **Code Section:**
 ```java
@@ -50,7 +58,9 @@ else
 - Overlaps with empty collection optimization (empty maps already handled)
 - This experiment includes the singleton map optimization only
 
-=== 05. Maps with Distinct Constant Keys
+=== 05. Maps with Distinct Constant Keys ⏭️ DEFERRED
+
+**Status:** Marked as TODO in optimize-syntax-quote-full.patch. Not yet implemented. May be added in future work.
 
 **Code Section:**
 ```java
@@ -86,7 +96,9 @@ else
 - Must preserve evaluation order of values (use Array Map which is ordered)
 - Need to implement `hasDistinctKeys()` helper function
 
-=== 06. Maps without Splices
+=== 06. Maps without Splices ✅ COMPLETED
+
+**Status:** Implementation complete, patch verified, experiment scripts ready.
 
 **Code Section:**
 ```java
@@ -120,7 +132,9 @@ else
 
 The set optimization section follows a similar pattern to maps:
 
-=== 07. Singleton Sets
+=== 07. Singleton Sets ✅ COMPLETED
+
+**Status:** Implementation complete, patch verified, experiment scripts ready.
 
 **Code Section:**
 Similar to singleton maps, for sets with exactly one element.
@@ -141,7 +155,9 @@ else
 **Examples:**
 - `` `#{:a} `` => `#{:a}` instead of `(apply hash-set (seq (concat (list :a))))`
 
-=== 08. Sets with Distinct Constants
+=== 08. Sets with Distinct Constants ⏭️ DEFERRED
+
+**Status:** Conceptual experiment. May be added in future work if needed.
 
 **Code Section:**
 ```java
@@ -168,7 +184,9 @@ else
 - Overlaps with empty and singleton sets
 - Could be refined for more granular measurements
 
-=== 09. Sets without Splices
+=== 09. Sets without Splices ✅ COMPLETED
+
+**Status:** Implementation complete, patch verified, experiment scripts ready.
 
 **Code Section:**
 ```java

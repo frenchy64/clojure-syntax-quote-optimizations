@@ -93,14 +93,14 @@ The planned sequence of optimizations, organized by LispReader.java sections (se
 3. ✓ **Empty collection literals** - Make `[]`, `{}`, `()`, `#{}` self-evaluating
 
 **Maps (IPersistentMap):**
-4. **Singleton maps** - Optimize 1-entry maps to use map literals (in progress)
-5. **Maps with distinct constant keys** - Use map literals when keys are provably distinct
-6. **Maps without splices** - Use `(hash-map ...)` instead of concat/apply
+4. ✓ **Singleton maps** - Optimize 1-entry maps to use map literals
+5. ⏭ **Maps with distinct constant keys** - Deferred (marked as TODO in full patch)
+6. ✓ **Maps without splices** - Use `(hash-map ...)` instead of concat/apply
 
 **Sets (IPersistentSet):**
-7. **Singleton sets** - Optimize 1-element sets
-8. **Sets with distinct constants** - Use set literals when elements are distinct
-9. **Sets without splices** - Use `(hash-set ...)` instead of concat/apply
+7. ✓ **Singleton sets** - Optimize 1-element sets
+8. ⏭ **Sets with distinct constants** - Deferred (conceptual)
+9. ✓ **Sets without splices** - Use `(hash-set ...)` instead of concat/apply
 
 **Lists & Vectors:**
 10-15. Various splice and constant propagation optimizations
