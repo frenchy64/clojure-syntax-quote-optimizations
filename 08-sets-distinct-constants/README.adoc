@@ -53,10 +53,12 @@ if(seq != null)
         {
         Object element = s.first();
         // Element must be a self-evaluating constant (keyword, number, string, boolean, nil, char)
-        if(isUnquote(element) || isUnquoteSplicing(element) ||
-           (element instanceof Symbol) ||
-           (element instanceof ISeq) ||
-           (element instanceof IPersistentCollection && !(element instanceof Keyword)))
+        if(!(element instanceof Keyword) && 
+           !(element == null) &&
+           !(element instanceof Number) &&
+           !(element instanceof String) &&
+           !(element instanceof Boolean) &&
+           !(element instanceof Character))
             {
             hasDistinctConstants = false;
             break;

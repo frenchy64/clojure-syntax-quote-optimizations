@@ -61,10 +61,12 @@ if(seq != null && (seq.count() % 2) == 0 && seq.count() > 0)
             {
             Object key = s.first();
             // Key must be a self-evaluating constant (keyword, number, string, boolean, nil, char)
-            if(isUnquote(key) || isUnquoteSplicing(key) ||
-               (key instanceof Symbol) ||
-               (key instanceof ISeq) ||
-               (key instanceof IPersistentCollection && !(key instanceof Keyword)))
+            if(!(key instanceof Keyword) && 
+               !(key == null) &&
+               !(key instanceof Number) &&
+               !(key instanceof String) &&
+               !(key instanceof Boolean) &&
+               !(key instanceof Character))
                 {
                 hasDistinctConstantKeys = false;
                 break;
