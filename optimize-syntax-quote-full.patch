@@ -1,0 +1,2707 @@
+From dd30d0af1e70783582e12a9997d803b8ef291fb1 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Sun, 20 Apr 2025 20:52:03 -0500
+Subject: [PATCH 01/32] Add Actions build and deps.edn
+
+---
+ .github/workflows/build.yml | 26 +++++++++++++++++++++++++
+ deps.edn                    | 38 +++++++++++++++++++++++++++++++++++++
+ 2 files changed, 64 insertions(+)
+ create mode 100644 .github/workflows/build.yml
+ create mode 100644 deps.edn
+
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+new file mode 100644
+index 0000000000..2fa83e6c72
+--- /dev/null
++++ b/.github/workflows/build.yml
+@@ -0,0 +1,26 @@
++name: Java CI
++
++on: [push]
++
++jobs:
++  build:
++    timeout-minutes: 5
++    strategy:
++      matrix:
++        jdk: ['8', '11', '17', '19']
++    runs-on: ubuntu-latest
++
++    steps:
++      - uses: actions/checkout@v2
++      - name: Set up JDK ${{ matrix.jdk }}
++        uses: actions/setup-java@v2
++        with:
++          java-version: ${{ matrix.jdk }}
++          distribution: 'temurin'
++          cache: maven
++      - name: Build with Maven
++        run: mvn test
++      - name: Configure settings.xml
++        run: |
++          mkdir -p ~/.m2
++          echo "<settings><servers><server><id>clojars</id><username>${{ secrets.CLOJARS_USER }}-clojars</username><password>${{ secrets.CLOJARS_PASSWORD }}</password></server></servers></settings>" > ~/.m2/settings.xml
+diff --git a/deps.edn b/deps.edn
+new file mode 100644
+index 0000000000..1b5a7ea601
+--- /dev/null
++++ b/deps.edn
+@@ -0,0 +1,38 @@
++;; https://clojure.org/dev/developing_patches#_run_an_individual_test
++{:paths ["test"
++         "target/test-classes"]
++ :deps
++ {org.clojure/clojure {:local/root "."
++                       :deps/manifest :pom} #_{:mvn/version "RELEASE"}
++  org.clojure/test.check {:mvn/version "1.1.1"}
++  org.clojure/test.generative {:mvn/version "1.0.0"}}
++ :aliases
++ {:dbg {:classpath-overrides {org.clojure/clojure "target/classes"}
++        :extra-deps {criterium/criterium {:mvn/version "0.4.4"}}}
++  :cognitest {:extra-deps {io.github.cognitect-labs/test-runner 
++                           {:git/tag "v0.5.0" :git/sha "b3fd0d2"}}
++              :main-opts ["-m" "cognitect.test-runner"]
++              :exec-fn cognitect.test-runner.api/test
++              :exec-args {:dirs ["test"]
++                          :patterns [;; FIXME clojure.test-clojure.ns-libs has a test that is sensitive to loading order
++                                     ;; FIXME clojure.test-clojure.java-interop doesn't seem to work on JDK 17 (untested on others)
++                                     ;; regex ref: https://stackoverflow.com/a/2387072
++                                     "^((?!(clojure.test-clojure.ns-libs|clojure.test-clojure.java-interop)).)*$"
++                                     ]}}
++  :test-example-script {:jvm-opts [;; from build.xml
++                                   "-Dclojure.test-clojure.exclude-namespaces=#{clojure.test-clojure.compilation.load-ns clojure.test-clojure.ns-libs-load-later}"
++                                   "-Dclojure.compiler.direct-linking=true"]
++                        :main-opts ["-e" "(load-file,\"src/script/run_test.clj\")"]}
++  :test-generative-script {:jvm-opts [;; from build.xml
++                                      "-Dclojure.compiler.direct-linking=true"]
++                           :main-opts ["-e" "(load-file,\"src/script/run_test_generative.clj\")"]}
++
++  :kaocha {:extra-deps {lambdaisland/kaocha {:mvn/version "1.60.977"}}
++           :exec-fn kaocha.runner/exec-fn
++           :exec-args {;:watch? true
++                       :tests [{:id          :unit
++                                :test-paths  ["test"]
++                                :ns-patterns [".*"]}]
++                       :reporter kaocha.report/dots
++                       ;; :plugins [:kaocha.plugin/profiling :kaocha.plugin/notifier]
++                       }}}}
+
+From a1fab3f7e0637f1e6f0d3d74896f8ecfcd2ce017 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Sun, 20 Apr 2025 21:34:15 -0500
+Subject: [PATCH 02/32] optimize some syntax-quote cases
+
+---
+ .gitignore                           |  5 +++
+ src/jvm/clojure/lang/LispReader.java | 51 ++++++++++++++++++++++++++--
+ 2 files changed, 53 insertions(+), 3 deletions(-)
+
+diff --git a/.gitignore b/.gitignore
+index 18cf4cc05c..139b31c406 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -7,3 +7,8 @@ maven-classpath
+ maven-classpath.properties
+ .idea/
+ *.iml
++.cpcache
++deps.edn
++.nrepl-*
++*.patch
++*.diff
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 8d7079cf5a..cddf559cda 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1093,11 +1093,32 @@ else if(form instanceof IPersistentCollection)
+ 			else if(form instanceof IPersistentMap)
+ 				{
+ 				IPersistentVector keyvals = flattenMap(form);
+-				ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
++        ISeq seq = keyvals.seq();
++        if(hasSplice(seq))
++          {
++          ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
++          }
++        else
++          {
++            //TODO return array-map if constant
++          ret = RT.cons(HASHMAP, sqExpandFlat(seq));
++          }
+ 				}
+ 			else if(form instanceof IPersistentVector)
+ 				{
+-				ret = RT.list(APPLY, VECTOR, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentVector) form).seq()))));
++        ISeq seq = ((IPersistentVector) form).seq();
++        if(hasSplice(seq))
++          {
++          ret = RT.list(APPLY, VECTOR, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
++          }
++        else if(seq == null)
++          {
++          ret = PersistentVector.EMPTY;
++          }
++        else
++          {
++          ret = LazilyPersistentVector.create(sqExpandFlat(seq));
++          }
+ 				}
+ 			else if(form instanceof IPersistentSet)
+ 				{
+@@ -1107,7 +1128,7 @@ else if(form instanceof ISeq || form instanceof IPersistentList)
+ 				{
+ 				ISeq seq = RT.seq(form);
+ 				if(seq == null)
+-					ret = RT.cons(LIST,null);
++					ret = PersistentList.EMPTY;
+ 				else
+ 					ret = RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq)));
+ 				}
+@@ -1132,6 +1153,30 @@ else if(form instanceof Keyword
+ 		return ret;
+ 	}
+ 
++	private static boolean hasSplice(ISeq seq) {
++		for(; seq != null; seq = seq.next())
++			{
++			if(isUnquoteSplicing(seq.first()))
++        return true;
++			}
++    return false;
++	}
++
++	private static ISeq sqExpandFlat(ISeq seq) {
++		PersistentVector ret = PersistentVector.EMPTY;
++		for(; seq != null; seq = seq.next())
++			{
++			Object item = seq.first();
++			if(isUnquote(item))
++				ret = ret.cons(RT.second(item));
++			else if(isUnquoteSplicing(item))
++        throw Util.runtimeException("unexpected splice " + item);
++			else
++				ret = ret.cons(syntaxQuote(item));
++			}
++		return ret.seq();
++	}
++
+ 	private static ISeq sqExpandList(ISeq seq) {
+ 		PersistentVector ret = PersistentVector.EMPTY;
+ 		for(; seq != null; seq = seq.next())
+
+From bc54c5aa1a2ba89495b0bfe6a0e9d35c2f5980f4 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Sun, 20 Apr 2025 21:53:07 -0500
+Subject: [PATCH 03/32] lists
+
+---
+ src/jvm/clojure/lang/LispReader.java | 21 +++++++++++++++++----
+ 1 file changed, 17 insertions(+), 4 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index cddf559cda..b20675a270 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -48,6 +48,7 @@ public class LispReader{
+ static Symbol CONCAT = Symbol.intern("clojure.core", "concat");
+ static Symbol SEQ = Symbol.intern("clojure.core", "seq");
+ static Symbol LIST = Symbol.intern("clojure.core", "list");
++static Symbol LIST_STAR = Symbol.intern("clojure.core", "list*");
+ static Symbol APPLY = Symbol.intern("clojure.core", "apply");
+ static Symbol HASHMAP = Symbol.intern("clojure.core", "hash-map");
+ static Symbol HASHSET = Symbol.intern("clojure.core", "hash-set");
+@@ -1129,8 +1130,13 @@ else if(form instanceof ISeq || form instanceof IPersistentList)
+ 				ISeq seq = RT.seq(form);
+ 				if(seq == null)
+ 					ret = PersistentList.EMPTY;
++        else if(hasSplice(seq))
++          if(hasOnlyTrailingSplice(seq))
++            ret = RT.cons(LIST_STAR, sqExpandFlat(seq));
++          else
++            ret = RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq)));
+ 				else
+-					ret = RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq)));
++					ret = RT.cons(LIST, sqExpandFlat(seq));
+ 				}
+ 			else
+ 				throw new UnsupportedOperationException("Unknown Collection type");
+@@ -1153,6 +1159,15 @@ else if(form instanceof Keyword
+ 		return ret;
+ 	}
+ 
++	private static boolean hasOnlyTrailingSplice(ISeq seq) {
++		for(; seq != null; seq = seq.next())
++			{
++			if(isUnquoteSplicing(seq.first()))
++        return seq.next() == null;
++			}
++    throw Util.runtimeException("expected splice");
++	}
++
+ 	private static boolean hasSplice(ISeq seq) {
+ 		for(; seq != null; seq = seq.next())
+ 			{
+@@ -1167,10 +1182,8 @@ private static ISeq sqExpandFlat(ISeq seq) {
+ 		for(; seq != null; seq = seq.next())
+ 			{
+ 			Object item = seq.first();
+-			if(isUnquote(item))
++			if(isUnquote(item) || isUnquoteSplicing(item))
+ 				ret = ret.cons(RT.second(item));
+-			else if(isUnquoteSplicing(item))
+-        throw Util.runtimeException("unexpected splice " + item);
+ 			else
+ 				ret = ret.cons(syntaxQuote(item));
+ 			}
+
+From 16f07125fcde8dff9504df05aafce5d43a613cf7 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Sun, 20 Apr 2025 22:00:00 -0500
+Subject: [PATCH 04/32] sets
+
+---
+ src/jvm/clojure/lang/LispReader.java | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index b20675a270..a9ed80b97a 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1123,7 +1123,19 @@ else if(seq == null)
+ 				}
+ 			else if(form instanceof IPersistentSet)
+ 				{
+-				ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentSet) form).seq()))));
++        ISeq seq = ((IPersistentSet) form).seq();
++        if(hasSplice(seq))
++          {
++				  ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
++          }
++        else if(seq == null)
++          {
++          ret = PersistentHashSet.EMPTY;
++          }
++        else
++          {
++				  ret = RT.cons(HASHSET, sqExpandFlat(seq));
++          }
+ 				}
+ 			else if(form instanceof ISeq || form instanceof IPersistentList)
+ 				{
+
+From c5dc56b81f30d1d1a068a7d9a42d559e75509408 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Sun, 20 Apr 2025 22:56:39 -0500
+Subject: [PATCH 05/32] vector
+
+---
+ src/jvm/clojure/lang/LispReader.java | 95 +++++++++++++++++++++++-----
+ 1 file changed, 79 insertions(+), 16 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index a9ed80b97a..bb1e16d4d8 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1109,33 +1109,28 @@ else if(form instanceof IPersistentVector)
+ 				{
+         ISeq seq = ((IPersistentVector) form).seq();
+         if(hasSplice(seq))
+-          {
+-          ret = RT.list(APPLY, VECTOR, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
+-          }
+-        else if(seq == null)
+-          {
+-          ret = PersistentVector.EMPTY;
+-          }
++          //TODO splice trailing
++          ret = RT.list(APPLY, VECTOR, RT.cons(CONCAT, sqExpandList(seq)));
+         else
+           {
+-          ret = LazilyPersistentVector.create(sqExpandFlat(seq));
++          ISeq flat = sqExpandFlat(seq);
++          if(seq == null)
++            ret = PersistentVector.EMPTY;
++          else if(isAllQuoteLiftable(flat))
++            ret = RT.list(QUOTE, LazilyPersistentVector.create(sqLiftQuoted(flat)));
++          else
++            ret = LazilyPersistentVector.create(flat);
+           }
+ 				}
+ 			else if(form instanceof IPersistentSet)
+ 				{
+         ISeq seq = ((IPersistentSet) form).seq();
+         if(hasSplice(seq))
+-          {
+-				  ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
+-          }
++				  ret = RT.list(APPLY, HASHSET, RT.cons(CONCAT, sqExpandList(seq)));
+         else if(seq == null)
+-          {
+           ret = PersistentHashSet.EMPTY;
+-          }
+         else
+-          {
+ 				  ret = RT.cons(HASHSET, sqExpandFlat(seq));
+-          }
+ 				}
+ 			else if(form instanceof ISeq || form instanceof IPersistentList)
+ 				{
+@@ -1143,10 +1138,12 @@ else if(form instanceof ISeq || form instanceof IPersistentList)
+ 				if(seq == null)
+ 					ret = PersistentList.EMPTY;
+         else if(hasSplice(seq))
++          {
+           if(hasOnlyTrailingSplice(seq))
+             ret = RT.cons(LIST_STAR, sqExpandFlat(seq));
+           else
+             ret = RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq)));
++          }
+ 				else
+ 					ret = RT.cons(LIST, sqExpandFlat(seq));
+ 				}
+@@ -1156,7 +1153,8 @@ else if(hasSplice(seq))
+ 		else if(form instanceof Keyword
+ 		        || form instanceof Number
+ 		        || form instanceof Character
+-		        || form instanceof String)
++		        || form instanceof String
++            || form == null)
+ 			ret = form;
+ 		else
+ 			ret = RT.list(Compiler.QUOTE, form);
+@@ -1180,6 +1178,57 @@ private static boolean hasOnlyTrailingSplice(ISeq seq) {
+     throw Util.runtimeException("expected splice");
+ 	}
+ 
++	private static boolean isQuoteLiftable(Object form) {
++    if(form instanceof Keyword
++        || form instanceof Number
++        || form instanceof Character
++        || form instanceof String
++        || form == null)
++      return true;
++    else if(form instanceof ISeq || form instanceof IPersistentList)
++      {
++      ISeq seq = RT.seq(form);
++      if(seq == null)
++        return true;
++      else if(seq.count() == 2 && Util.equals(RT.first(form),QUOTE))
++        return true;
++      else
++        return false;
++      }
++    else
++      return false;
++	}
++
++	private static Object liftQuoted(Object form) {
++    if(form instanceof Keyword
++        || form instanceof Number
++        || form instanceof Character
++        || form instanceof String
++        || form == null)
++      return form;
++    else if(form instanceof ISeq || form instanceof IPersistentList)
++      {
++      ISeq seq = RT.seq(form);
++      if(seq == null)
++        return form;
++      else if(seq.count() == 2 && Util.equals(RT.first(form),QUOTE))
++        return RT.second(seq);
++      else
++        throw Util.runtimeException("cannot lift "+form);
++      }
++    else
++      throw Util.runtimeException("cannot lift"+form);
++	}
++
++	private static boolean isAllQuoteLiftable(ISeq seq) {
++		for(; seq != null; seq = seq.next())
++			{
++			if(!isQuoteLiftable(seq.first()))
++        return false;
++			}
++    return true;
++	}
++
+ 	private static boolean hasSplice(ISeq seq) {
+ 		for(; seq != null; seq = seq.next())
+ 			{
+@@ -1189,12 +1238,26 @@ private static boolean hasSplice(ISeq seq) {
+     return false;
+ 	}
+ 
++	private static ISeq sqLiftQuoted(ISeq seq) {
++		PersistentVector ret = PersistentVector.EMPTY;
++		for(; seq != null; seq = seq.next())
++			{
++			Object item = seq.first();
++			if(isUnquote(item) || isUnquoteSplicing(item))
++        throw Util.runtimeException("cannot lift unquoted");
++			else
++				ret = ret.cons(liftQuoted(item));
++			}
++		return ret.seq();
++	}
++
+ 	private static ISeq sqExpandFlat(ISeq seq) {
+ 		PersistentVector ret = PersistentVector.EMPTY;
+ 		for(; seq != null; seq = seq.next())
+ 			{
+ 			Object item = seq.first();
+ 			if(isUnquote(item) || isUnquoteSplicing(item))
++        // add splice as collection so it can be passed to list*
+ 				ret = ret.cons(RT.second(item));
+ 			else
+ 				ret = ret.cons(syntaxQuote(item));
+
+From d37a7d037d9722fd4e29a49a26886de63b37dea8 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Sun, 20 Apr 2025 23:09:04 -0500
+Subject: [PATCH 06/32] wip
+
+---
+ src/jvm/clojure/lang/LispReader.java | 16 ++++++++++++++--
+ 1 file changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index bb1e16d4d8..f7f0b0277b 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1145,7 +1145,13 @@ else if(hasSplice(seq))
+             ret = RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq)));
+           }
+ 				else
+-					ret = RT.cons(LIST, sqExpandFlat(seq));
++          {
++          ISeq flat = sqExpandFlat(seq);
++          if(isAllQuoteLiftable(flat))
++            ret = RT.list(QUOTE, sqLiftQuoted(flat));
++          else
++            ret = RT.cons(LIST, flat);
++          }
+ 				}
+ 			else
+ 				throw new UnsupportedOperationException("Unknown Collection type");
+@@ -1185,6 +1191,10 @@ private static boolean isQuoteLiftable(Object form) {
+         || form instanceof String
+         || form == null)
+       return true;
++    else if(form instanceof IPersistentVector)
++      {
++      return isAllQuoteLiftable(RT.seq(form));
++      }
+     else if(form instanceof ISeq || form instanceof IPersistentList)
+       {
+       ISeq seq = RT.seq(form);
+@@ -1199,12 +1209,14 @@ else if(seq.count() == 2 && Util.equals(RT.first(form),QUOTE))
+       return false;
+ 	}
+ 
++  //TODO maps
+ 	private static Object liftQuoted(Object form) {
+     if(form instanceof Keyword
+         || form instanceof Number
+         || form instanceof Character
+         || form instanceof String
+-        || form == null)
++        || form == null
++        || form instanceof IPersistentVector)
+       return form;
+     else if(form instanceof ISeq || form instanceof IPersistentList)
+       {
+
+From de7f6080c8d044df438fa5b4b760ce11ee9014ee Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Sun, 20 Apr 2025 23:22:51 -0500
+Subject: [PATCH 07/32] wip
+
+---
+ src/jvm/clojure/lang/LispReader.java | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index f7f0b0277b..4e4905f9c6 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1101,8 +1101,16 @@ else if(form instanceof IPersistentMap)
+           }
+         else
+           {
+-            //TODO return array-map if constant
+-          ret = RT.cons(HASHMAP, sqExpandFlat(seq));
++          ISeq flat = sqExpandFlat(seq);
++          if(isAllQuoteLiftable(flat))
++            //TODO check if lifted keys are distinct, e.g.,
++            //user=> {'1 '2 1 2}
++            //Syntax error (IllegalArgumentException) compiling at (REPL:0:0).
++            //Duplicate constant keys in map
++            ret = RT.list(QUOTE, (PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqLiftQuoted(flat)))));
++          //TODO if just keys are constant
++          else
++            ret = RT.cons(HASHMAP, flat);
+           }
+ 				}
+ 			else if(form instanceof IPersistentVector)
+
+From 868d628f75d7777a1873df3f5c06e048e98c7420 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Mon, 21 Apr 2025 00:05:31 -0500
+Subject: [PATCH 08/32] wip
+
+---
+ src/jvm/clojure/lang/LispReader.java | 22 +++++++---------------
+ 1 file changed, 7 insertions(+), 15 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 4e4905f9c6..542dc7fc5b 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1096,22 +1096,14 @@ else if(form instanceof IPersistentMap)
+ 				IPersistentVector keyvals = flattenMap(form);
+         ISeq seq = keyvals.seq();
+         if(hasSplice(seq))
+-          {
+-          ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
+-          }
++          ret = RT.list(APPLY, HASHMAP, RT.cons(CONCAT, sqExpandList(seq)));
++        else if(seq == null)
++          ret = PersistentArrayMap.EMPTY;
++        else if(seq.count() == 2)
++          ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
++            //TODO flatten constants
+         else
+-          {
+-          ISeq flat = sqExpandFlat(seq);
+-          if(isAllQuoteLiftable(flat))
+-            //TODO check if lifted keys are distinct, e.g.,
+-            //user=> {'1 '2 1 2}
+-            //Syntax error (IllegalArgumentException) compiling at (REPL:0:0).
+-            //Duplicate constant keys in map
+-            ret = RT.list(QUOTE, (PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqLiftQuoted(flat)))));
+-          //TODO if just keys are constant
+-          else
+-            ret = RT.cons(HASHMAP, flat);
+-          }
++          ret = RT.cons(HASHMAP, sqExpandFlat(seq));
+ 				}
+ 			else if(form instanceof IPersistentVector)
+ 				{
+
+From d6258c17eaff24d05757b397285067d7ea9e146a Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Mon, 21 Apr 2025 00:12:09 -0500
+Subject: [PATCH 09/32] improve
+
+---
+ src/jvm/clojure/lang/LispReader.java | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 542dc7fc5b..455e3f2adc 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1109,8 +1109,10 @@ else if(form instanceof IPersistentVector)
+ 				{
+         ISeq seq = ((IPersistentVector) form).seq();
+         if(hasSplice(seq))
+-          //TODO splice trailing
+-          ret = RT.list(APPLY, VECTOR, RT.cons(CONCAT, sqExpandList(seq)));
++          if(hasOnlyTrailingSplice(seq))
++            ret = RT.cons(APPLY, RT.cons(VECTOR, sqExpandFlat(seq)));
++          else
++            ret = RT.list(APPLY, VECTOR, RT.cons(CONCAT, sqExpandList(seq)));
+         else
+           {
+           ISeq flat = sqExpandFlat(seq);
+
+From 55d63b189f97774777da0a0b2cb27e0c2eabcc6b Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Mon, 21 Apr 2025 01:25:01 -0500
+Subject: [PATCH 10/32] note
+
+---
+ src/jvm/clojure/lang/LispReader.java | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 455e3f2adc..01c4421b49 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1139,6 +1139,8 @@ else if(form instanceof ISeq || form instanceof IPersistentList)
+ 				ISeq seq = RT.seq(form);
+ 				if(seq == null)
+ 					ret = PersistentList.EMPTY;
++        //TODO handle `(deftype* ~1 ~2 ~3 ~4 :implements ~5 ~@v1 ~@v2)
++        // as (list* 'deftype* ~1 ~2 ~3 ~4 :implements ~5 (concat v1 v2))
+         else if(hasSplice(seq))
+           {
+           if(hasOnlyTrailingSplice(seq))
+
+From 37fc6112330d77ab7676ef0f9ab0eb4c5cb77084 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Mon, 21 Apr 2025 01:31:01 -0500
+Subject: [PATCH 11/32] add doseq/for fixes
+
+---
+ src/clj/clojure/core.clj | 156 ++++++++++++++++++---------------------
+ 1 file changed, 73 insertions(+), 83 deletions(-)
+
+diff --git a/src/clj/clojure/core.clj b/src/clj/clojure/core.clj
+index be8e61c949..05849280e0 100644
+--- a/src/clj/clojure/core.clj
++++ b/src/clj/clojure/core.clj
+@@ -3235,11 +3235,10 @@
+   "Repeatedly executes body (presumably for side-effects) with
+   bindings and filtering as provided by \"for\".  Does not retain
+   the head of the sequence. Returns nil."
+-  {:added "1.0"}
+   [seq-exprs & body]
+   (assert-args
+-     (vector? seq-exprs) "a vector for its binding"
+-     (even? (count seq-exprs)) "an even number of forms in binding vector")
++    (vector? seq-exprs) "a vector for its binding"
++    (even? (count seq-exprs)) "an even number of forms in binding vector")
+   (let [step (fn step [recform exprs]
+                (if-not exprs
+                  [true `(do ~@body)]
+@@ -3264,29 +3263,29 @@
+                                              {:tag 'clojure.lang.IChunk})
+                            count- (gensym "count_")
+                            i- (gensym "i_")
+-                           recform `(recur (next ~seq-) nil 0 0)
++                           in-chunk- (gensym "in-chunk_")
++                           recform `(if ~in-chunk-
++                                      (recur ~seq- ~chunk- ~count- (unchecked-inc ~i-))
++                                      (recur (next ~seq-) nil 0 0))
+                            steppair (step recform (nnext exprs))
+                            needrec (steppair 0)
+-                           subform (steppair 1)
+-                           recform-chunk 
+-                             `(recur ~seq- ~chunk- ~count- (unchecked-inc ~i-))
+-                           steppair-chunk (step recform-chunk (nnext exprs))
+-                           subform-chunk (steppair-chunk 1)]
++                           subform (steppair 1)]
+                        [true
+                         `(loop [~seq- (seq ~v), ~chunk- nil,
+                                 ~count- 0, ~i- 0]
+-                           (if (< ~i- ~count-)
+-                             (let [~k (.nth ~chunk- ~i-)]
+-                               ~subform-chunk
+-                               ~@(when needrec [recform-chunk]))
+-                             (when-let [~seq- (seq ~seq-)]
+-                               (if (chunked-seq? ~seq-)
+-                                 (let [c# (chunk-first ~seq-)]
+-                                   (recur (chunk-rest ~seq-) c#
+-                                          (int (count c#)) (int 0)))
+-                                 (let [~k (first ~seq-)]
+-                                   ~subform
+-                                   ~@(when needrec [recform]))))))])))))]
++                           (let [~in-chunk- (< ~i- ~count-)
++                                 ~seq- (if ~in-chunk- ~seq- (seq ~seq-))]
++                             (when (if ~in-chunk- true ~seq-)
++                               (let [chunked?# (if ~in-chunk- false (chunked-seq? ~seq-))
++                                     ~k (if ~in-chunk-
++                                          (.nth ~chunk- ~i-)
++                                          (if chunked?# nil (first ~seq-)))]
++                                 (if (if ~in-chunk- false chunked?#)
++                                   (let [c# (chunk-first ~seq-)]
++                                     (recur (chunk-rest ~seq-) c#
++                                            (int (count c#)) (int 0)))
++                                   (do ~subform
++                                       ~@(when needrec [recform])))))))])))))]
+     (nth (step nil (seq seq-exprs)) 1)))
+ 
+ (defn await
+@@ -4683,10 +4682,10 @@
+   {:added "1.0"}
+   [seq-exprs body-expr]
+   (assert-args
+-     (vector? seq-exprs) "a vector for its binding"
+-     (even? (count seq-exprs)) "an even number of forms in binding vector")
++    (vector? seq-exprs) "a vector for its binding"
++    (even? (count seq-exprs)) "an even number of forms in binding vector")
+   (let [to-groups (fn [seq-exprs]
+-                    (reduce1 (fn [groups [k v]]
++                    (reduce (fn [groups [k v]]
+                               (if (keyword? k)
+                                 (conj (pop groups) (conj (peek groups) [k v]))
+                                 (conj groups [k v])))
+@@ -4696,66 +4695,57 @@
+                                   & [[_ next-expr] :as next-groups]]]
+                     (let [giter (gensym "iter__")
+                           gxs (gensym "s__")
+-                          do-mod (fn do-mod [[[k v :as pair] & etc]]
+-                                   (cond
+-                                     (= k :let) `(let ~v ~(do-mod etc))
+-                                     (= k :while) `(when ~v ~(do-mod etc))
+-                                     (= k :when) `(if ~v
+-                                                    ~(do-mod etc)
+-                                                    (recur (rest ~gxs)))
+-                                     (keyword? k) (err "Invalid 'for' keyword " k)
+-                                     next-groups
+-                                      `(let [iterys# ~(emit-bind next-groups)
+-                                             fs# (seq (iterys# ~next-expr))]
+-                                         (if fs#
+-                                           (concat fs# (~giter (rest ~gxs)))
+-                                           (recur (rest ~gxs))))
+-                                     :else `(cons ~body-expr
+-                                                  (~giter (rest ~gxs)))))]
+-                      (if next-groups
+-                        #_"not the inner-most loop"
+-                        `(fn ~giter [~gxs]
+-                           (lazy-seq
+-                             (loop [~gxs ~gxs]
+-                               (when-first [~bind ~gxs]
+-                                 ~(do-mod mod-pairs)))))
+-                        #_"inner-most loop"
+-                        (let [gi (gensym "i__")
+-                              gb (gensym "b__")
+-                              do-cmod (fn do-cmod [[[k v :as pair] & etc]]
+-                                        (cond
+-                                          (= k :let) `(let ~v ~(do-cmod etc))
+-                                          (= k :while) `(when ~v ~(do-cmod etc))
+-                                          (= k :when) `(if ~v
+-                                                         ~(do-cmod etc)
+-                                                         (recur
+-                                                           (unchecked-inc ~gi)))
+-                                          (keyword? k)
+-                                            (err "Invalid 'for' keyword " k)
+-                                          :else
+-                                            `(do (chunk-append ~gb ~body-expr)
+-                                                 (recur (unchecked-inc ~gi)))))]
+-                          `(fn ~giter [~gxs]
+-                             (lazy-seq
+-                               (loop [~gxs ~gxs]
+-                                 (when-let [~gxs (seq ~gxs)]
+-                                   (if (chunked-seq? ~gxs)
+-                                     (let [c# (chunk-first ~gxs)
+-                                           size# (int (count c#))
+-                                           ~gb (chunk-buffer size#)]
+-                                       (if (loop [~gi (int 0)]
+-                                             (if (< ~gi size#)
+-                                               (let [~bind (.nth c# ~gi)]
+-                                                 ~(do-cmod mod-pairs))
+-                                               true))
+-                                         (chunk-cons
+-                                           (chunk ~gb)
+-                                           (~giter (chunk-rest ~gxs)))
+-                                         (chunk-cons (chunk ~gb) nil)))
+-                                     (let [~bind (first ~gxs)]
+-                                       ~(do-mod mod-pairs)))))))))))]
++                          gfirst (gensym "first__")
++                          gf (gensym "f__")
++                          gi (gensym "i__")
++                          gb (gensym "b__")
++                          inner-most-loop? (nil? next-groups)
++                          do-mod (fn do-mod [chunked? [[k v :as pair] & etc]]
++                                   {:pre [(or (not chunked?) inner-most-loop?)]}
++                                   (let [wrap (fn [b] (if inner-most-loop? `(let [~bind (~gf ~gfirst)] ~b) b))]
++                                     (cond
++                                       (= k :let) (wrap `(let ~v ~(do-mod chunked? etc)))
++                                       (= k :while) (wrap `(when ~v ~(do-mod chunked? etc)))
++                                       (= k :when) (wrap `(if ~v
++                                                            ~(do-mod chunked? etc)
++                                                            (recur ~(if chunked?
++                                                                      `(unchecked-inc ~gi)
++                                                                      `(rest ~gxs)))))
++                                       (keyword? k) (err "Invalid 'for' keyword " k)
++                                       (not inner-most-loop?) `(let [iterys# ~(emit-bind next-groups)]
++                                                                 (if-let [fs# (seq (iterys# ~next-expr))]
++                                                                   (concat fs# (~giter (rest ~gxs)))
++                                                                   (recur (rest ~gxs))))
++                                       :else (if chunked?
++                                               `(do (chunk-append ~gb (~gf ~gfirst))
++                                                    (recur (unchecked-inc ~gi)))
++                                               `(cons (~gf ~gfirst)
++                                                      (~giter (rest ~gxs)))))))]
++                      `(fn ~giter [~gxs]
++                         (lazy-seq
++                           (loop [~gxs ~gxs]
++                             ~(if-not inner-most-loop?
++                                `(when-first [~bind ~gxs]
++                                   ~(do-mod false mod-pairs))
++                                `(when-let [~gxs (seq ~gxs)]
++                                   (let [~gf (fn [~bind] ~body-expr)]
++                                     (if (chunked-seq? ~gxs)
++                                       (let [c# (chunk-first ~gxs)
++                                             size# (int (count c#))
++                                             ~gb (chunk-buffer size#)]
++                                         (if (loop [~gi (int 0)]
++                                               (if (< ~gi size#)
++                                                 (let [~gfirst (.nth c# ~gi)]
++                                                   ~(do-mod true mod-pairs))
++                                                 true))
++                                           (chunk-cons
++                                             (chunk ~gb)
++                                             (~giter (chunk-rest ~gxs)))
++                                           (chunk-cons (chunk ~gb) nil)))
++                                       (let [~gfirst (first ~gxs)]
++                                         ~(do-mod false mod-pairs)))))))))))]
+     `(let [iter# ~(emit-bind (to-groups seq-exprs))]
+-        (iter# ~(second seq-exprs)))))
++       (iter# ~(second seq-exprs)))))
+ 
+ (defmacro comment
+   "Ignores body, yields nil"
+
+From f60c559d19524e81279aa8f1847c3fbba90d6778 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Mon, 21 Apr 2025 08:37:25 -0500
+Subject: [PATCH 12/32] back out
+
+---
+ .gitignore               |   1 +
+ src/clj/clojure/core.clj | 156 +++++++++++++++++++++------------------
+ 2 files changed, 84 insertions(+), 73 deletions(-)
+
+diff --git a/.gitignore b/.gitignore
+index 139b31c406..83782bbfa4 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -12,3 +12,4 @@ deps.edn
+ .nrepl-*
+ *.patch
+ *.diff
++dependency-reduced-pom.xml
+diff --git a/src/clj/clojure/core.clj b/src/clj/clojure/core.clj
+index 05849280e0..be8e61c949 100644
+--- a/src/clj/clojure/core.clj
++++ b/src/clj/clojure/core.clj
+@@ -3235,10 +3235,11 @@
+   "Repeatedly executes body (presumably for side-effects) with
+   bindings and filtering as provided by \"for\".  Does not retain
+   the head of the sequence. Returns nil."
++  {:added "1.0"}
+   [seq-exprs & body]
+   (assert-args
+-    (vector? seq-exprs) "a vector for its binding"
+-    (even? (count seq-exprs)) "an even number of forms in binding vector")
++     (vector? seq-exprs) "a vector for its binding"
++     (even? (count seq-exprs)) "an even number of forms in binding vector")
+   (let [step (fn step [recform exprs]
+                (if-not exprs
+                  [true `(do ~@body)]
+@@ -3263,29 +3264,29 @@
+                                              {:tag 'clojure.lang.IChunk})
+                            count- (gensym "count_")
+                            i- (gensym "i_")
+-                           in-chunk- (gensym "in-chunk_")
+-                           recform `(if ~in-chunk-
+-                                      (recur ~seq- ~chunk- ~count- (unchecked-inc ~i-))
+-                                      (recur (next ~seq-) nil 0 0))
++                           recform `(recur (next ~seq-) nil 0 0)
+                            steppair (step recform (nnext exprs))
+                            needrec (steppair 0)
+-                           subform (steppair 1)]
++                           subform (steppair 1)
++                           recform-chunk 
++                             `(recur ~seq- ~chunk- ~count- (unchecked-inc ~i-))
++                           steppair-chunk (step recform-chunk (nnext exprs))
++                           subform-chunk (steppair-chunk 1)]
+                        [true
+                         `(loop [~seq- (seq ~v), ~chunk- nil,
+                                 ~count- 0, ~i- 0]
+-                           (let [~in-chunk- (< ~i- ~count-)
+-                                 ~seq- (if ~in-chunk- ~seq- (seq ~seq-))]
+-                             (when (if ~in-chunk- true ~seq-)
+-                               (let [chunked?# (if ~in-chunk- false (chunked-seq? ~seq-))
+-                                     ~k (if ~in-chunk-
+-                                          (.nth ~chunk- ~i-)
+-                                          (if chunked?# nil (first ~seq-)))]
+-                                 (if (if ~in-chunk- false chunked?#)
+-                                   (let [c# (chunk-first ~seq-)]
+-                                     (recur (chunk-rest ~seq-) c#
+-                                            (int (count c#)) (int 0)))
+-                                   (do ~subform
+-                                       ~@(when needrec [recform])))))))])))))]
++                           (if (< ~i- ~count-)
++                             (let [~k (.nth ~chunk- ~i-)]
++                               ~subform-chunk
++                               ~@(when needrec [recform-chunk]))
++                             (when-let [~seq- (seq ~seq-)]
++                               (if (chunked-seq? ~seq-)
++                                 (let [c# (chunk-first ~seq-)]
++                                   (recur (chunk-rest ~seq-) c#
++                                          (int (count c#)) (int 0)))
++                                 (let [~k (first ~seq-)]
++                                   ~subform
++                                   ~@(when needrec [recform]))))))])))))]
+     (nth (step nil (seq seq-exprs)) 1)))
+ 
+ (defn await
+@@ -4682,10 +4683,10 @@
+   {:added "1.0"}
+   [seq-exprs body-expr]
+   (assert-args
+-    (vector? seq-exprs) "a vector for its binding"
+-    (even? (count seq-exprs)) "an even number of forms in binding vector")
++     (vector? seq-exprs) "a vector for its binding"
++     (even? (count seq-exprs)) "an even number of forms in binding vector")
+   (let [to-groups (fn [seq-exprs]
+-                    (reduce (fn [groups [k v]]
++                    (reduce1 (fn [groups [k v]]
+                               (if (keyword? k)
+                                 (conj (pop groups) (conj (peek groups) [k v]))
+                                 (conj groups [k v])))
+@@ -4695,57 +4696,66 @@
+                                   & [[_ next-expr] :as next-groups]]]
+                     (let [giter (gensym "iter__")
+                           gxs (gensym "s__")
+-                          gfirst (gensym "first__")
+-                          gf (gensym "f__")
+-                          gi (gensym "i__")
+-                          gb (gensym "b__")
+-                          inner-most-loop? (nil? next-groups)
+-                          do-mod (fn do-mod [chunked? [[k v :as pair] & etc]]
+-                                   {:pre [(or (not chunked?) inner-most-loop?)]}
+-                                   (let [wrap (fn [b] (if inner-most-loop? `(let [~bind (~gf ~gfirst)] ~b) b))]
+-                                     (cond
+-                                       (= k :let) (wrap `(let ~v ~(do-mod chunked? etc)))
+-                                       (= k :while) (wrap `(when ~v ~(do-mod chunked? etc)))
+-                                       (= k :when) (wrap `(if ~v
+-                                                            ~(do-mod chunked? etc)
+-                                                            (recur ~(if chunked?
+-                                                                      `(unchecked-inc ~gi)
+-                                                                      `(rest ~gxs)))))
+-                                       (keyword? k) (err "Invalid 'for' keyword " k)
+-                                       (not inner-most-loop?) `(let [iterys# ~(emit-bind next-groups)]
+-                                                                 (if-let [fs# (seq (iterys# ~next-expr))]
+-                                                                   (concat fs# (~giter (rest ~gxs)))
+-                                                                   (recur (rest ~gxs))))
+-                                       :else (if chunked?
+-                                               `(do (chunk-append ~gb (~gf ~gfirst))
+-                                                    (recur (unchecked-inc ~gi)))
+-                                               `(cons (~gf ~gfirst)
+-                                                      (~giter (rest ~gxs)))))))]
+-                      `(fn ~giter [~gxs]
+-                         (lazy-seq
+-                           (loop [~gxs ~gxs]
+-                             ~(if-not inner-most-loop?
+-                                `(when-first [~bind ~gxs]
+-                                   ~(do-mod false mod-pairs))
+-                                `(when-let [~gxs (seq ~gxs)]
+-                                   (let [~gf (fn [~bind] ~body-expr)]
+-                                     (if (chunked-seq? ~gxs)
+-                                       (let [c# (chunk-first ~gxs)
+-                                             size# (int (count c#))
+-                                             ~gb (chunk-buffer size#)]
+-                                         (if (loop [~gi (int 0)]
+-                                               (if (< ~gi size#)
+-                                                 (let [~gfirst (.nth c# ~gi)]
+-                                                   ~(do-mod true mod-pairs))
+-                                                 true))
+-                                           (chunk-cons
+-                                             (chunk ~gb)
+-                                             (~giter (chunk-rest ~gxs)))
+-                                           (chunk-cons (chunk ~gb) nil)))
+-                                       (let [~gfirst (first ~gxs)]
+-                                         ~(do-mod false mod-pairs)))))))))))]
++                          do-mod (fn do-mod [[[k v :as pair] & etc]]
++                                   (cond
++                                     (= k :let) `(let ~v ~(do-mod etc))
++                                     (= k :while) `(when ~v ~(do-mod etc))
++                                     (= k :when) `(if ~v
++                                                    ~(do-mod etc)
++                                                    (recur (rest ~gxs)))
++                                     (keyword? k) (err "Invalid 'for' keyword " k)
++                                     next-groups
++                                      `(let [iterys# ~(emit-bind next-groups)
++                                             fs# (seq (iterys# ~next-expr))]
++                                         (if fs#
++                                           (concat fs# (~giter (rest ~gxs)))
++                                           (recur (rest ~gxs))))
++                                     :else `(cons ~body-expr
++                                                  (~giter (rest ~gxs)))))]
++                      (if next-groups
++                        #_"not the inner-most loop"
++                        `(fn ~giter [~gxs]
++                           (lazy-seq
++                             (loop [~gxs ~gxs]
++                               (when-first [~bind ~gxs]
++                                 ~(do-mod mod-pairs)))))
++                        #_"inner-most loop"
++                        (let [gi (gensym "i__")
++                              gb (gensym "b__")
++                              do-cmod (fn do-cmod [[[k v :as pair] & etc]]
++                                        (cond
++                                          (= k :let) `(let ~v ~(do-cmod etc))
++                                          (= k :while) `(when ~v ~(do-cmod etc))
++                                          (= k :when) `(if ~v
++                                                         ~(do-cmod etc)
++                                                         (recur
++                                                           (unchecked-inc ~gi)))
++                                          (keyword? k)
++                                            (err "Invalid 'for' keyword " k)
++                                          :else
++                                            `(do (chunk-append ~gb ~body-expr)
++                                                 (recur (unchecked-inc ~gi)))))]
++                          `(fn ~giter [~gxs]
++                             (lazy-seq
++                               (loop [~gxs ~gxs]
++                                 (when-let [~gxs (seq ~gxs)]
++                                   (if (chunked-seq? ~gxs)
++                                     (let [c# (chunk-first ~gxs)
++                                           size# (int (count c#))
++                                           ~gb (chunk-buffer size#)]
++                                       (if (loop [~gi (int 0)]
++                                             (if (< ~gi size#)
++                                               (let [~bind (.nth c# ~gi)]
++                                                 ~(do-cmod mod-pairs))
++                                               true))
++                                         (chunk-cons
++                                           (chunk ~gb)
++                                           (~giter (chunk-rest ~gxs)))
++                                         (chunk-cons (chunk ~gb) nil)))
++                                     (let [~bind (first ~gxs)]
++                                       ~(do-mod mod-pairs)))))))))))]
+     `(let [iter# ~(emit-bind (to-groups seq-exprs))]
+-       (iter# ~(second seq-exprs)))))
++        (iter# ~(second seq-exprs)))))
+ 
+ (defmacro comment
+   "Ignores body, yields nil"
+
+From a096aaf71f779f34b5a35bd8a63f74b2449b87a3 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Mon, 21 Apr 2025 08:52:19 -0500
+Subject: [PATCH 13/32] qualify version
+
+---
+ pom.xml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/pom.xml b/pom.xml
+index c587c770a7..61884a1814 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -5,7 +5,7 @@
+   <artifactId>clojure</artifactId>
+   <name>clojure</name>
+   <packaging>jar</packaging>
+-  <version>1.13.0-master-SNAPSHOT</version>
++  <version>1.13.0-optimizesyntaxquote-SNAPSHOT</version>
+ 
+   <url>http://clojure.org/</url>
+   <description>Clojure core environment and runtime library.</description>
+
+From 060801410ec01259aad28dcbb25461caac162735 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Mon, 21 Apr 2025 10:06:22 -0500
+Subject: [PATCH 14/32] wip
+
+---
+ src/jvm/clojure/lang/LispReader.java | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 01c4421b49..55e2265d72 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -52,6 +52,7 @@ public class LispReader{
+ static Symbol APPLY = Symbol.intern("clojure.core", "apply");
+ static Symbol HASHMAP = Symbol.intern("clojure.core", "hash-map");
+ static Symbol HASHSET = Symbol.intern("clojure.core", "hash-set");
++static Symbol VEC = Symbol.intern("clojure.core", "vec");
+ static Symbol VECTOR = Symbol.intern("clojure.core", "vector");
+ static Symbol WITH_META = Symbol.intern("clojure.core", "with-meta");
+ static Symbol META = Symbol.intern("clojure.core", "meta");
+@@ -1109,10 +1110,12 @@ else if(form instanceof IPersistentVector)
+ 				{
+         ISeq seq = ((IPersistentVector) form).seq();
+         if(hasSplice(seq))
+-          if(hasOnlyTrailingSplice(seq))
++          if(seq.count() == 1)
++            ret = RT.cons(VEC, sqExpandList(seq));
++          else if(hasOnlyTrailingSplice(seq))
+             ret = RT.cons(APPLY, RT.cons(VECTOR, sqExpandFlat(seq)));
+           else
+-            ret = RT.list(APPLY, VECTOR, RT.cons(CONCAT, sqExpandList(seq)));
++            ret = RT.list(VEC, RT.cons(CONCAT, sqExpandList(seq)));
+         else
+           {
+           ISeq flat = sqExpandFlat(seq);
+@@ -1281,6 +1284,8 @@ private static ISeq sqExpandFlat(ISeq seq) {
+ 		return ret.seq();
+ 	}
+ 
++  //TODO group contiguous values between unquote-splices
++  // [1 2 ~@a 3 4] => [[1 2] a [3 4]]
+ 	private static ISeq sqExpandList(ISeq seq) {
+ 		PersistentVector ret = PersistentVector.EMPTY;
+ 		for(; seq != null; seq = seq.next())
+
+From 4a6a7ce803c6b54c376ec4495b8e17fcf4918c79 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Mon, 21 Apr 2025 10:59:07 -0500
+Subject: [PATCH 15/32] group
+
+---
+ src/jvm/clojure/lang/LispReader.java | 42 +++++++++++++++++++++++-----
+ 1 file changed, 35 insertions(+), 7 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 55e2265d72..c01a3c941e 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1284,19 +1284,47 @@ private static ISeq sqExpandFlat(ISeq seq) {
+ 		return ret.seq();
+ 	}
+ 
+-  //TODO group contiguous values between unquote-splices
+-  // [1 2 ~@a 3 4] => [[1 2] a [3 4]]
+ 	private static ISeq sqExpandList(ISeq seq) {
+ 		PersistentVector ret = PersistentVector.EMPTY;
+ 		for(; seq != null; seq = seq.next())
+ 			{
+ 			Object item = seq.first();
+-			if(isUnquote(item))
+-				ret = ret.cons(RT.list(LIST, RT.second(item)));
+-			else if(isUnquoteSplicing(item))
++			if(isUnquoteSplicing(item))
++        {
+ 				ret = ret.cons(RT.second(item));
+-			else
+-				ret = ret.cons(RT.list(LIST, syntaxQuote(item)));
++        }
++      else
++        {
++        //group contiguous values between unquote-splices
++        // [1 2 ~@a 3 4] => [[1 2] a [3 4]]
++        // TODO if all quoted, lift to group level
++        IPersistentVector group = PersistentVector.EMPTY;
++        while(true)
++          {
++          if(isUnquote(item))
++            group = group.cons(RT.second(item));
++          else
++            group = group.cons(syntaxQuote(item));
++          seq = seq.next();
++          if(seq != null)
++            {
++            item = seq.first();
++            if(isUnquoteSplicing(item))
++              {
++              ret = ret.cons(group);
++              ret = ret.cons(RT.second(item));
++              break;
++              }
++            }
++          else
++            {
++            ret = ret.cons(group);
++            break;
++            }
++          }
++        }
++      if(seq == null)
++        break;
+ 			}
+ 		return ret.seq();
+ 	}
+
+From 736c8354c9f360f2809385fafed818a9d4cb8904 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Mon, 21 Apr 2025 11:30:30 -0500
+Subject: [PATCH 16/32] rm redundant build
+
+---
+ .github/workflows/build.yml | 26 --------------------------
+ 1 file changed, 26 deletions(-)
+ delete mode 100644 .github/workflows/build.yml
+
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+deleted file mode 100644
+index 2fa83e6c72..0000000000
+--- a/.github/workflows/build.yml
++++ /dev/null
+@@ -1,26 +0,0 @@
+-name: Java CI
+-
+-on: [push]
+-
+-jobs:
+-  build:
+-    timeout-minutes: 5
+-    strategy:
+-      matrix:
+-        jdk: ['8', '11', '17', '19']
+-    runs-on: ubuntu-latest
+-
+-    steps:
+-      - uses: actions/checkout@v2
+-      - name: Set up JDK ${{ matrix.jdk }}
+-        uses: actions/setup-java@v2
+-        with:
+-          java-version: ${{ matrix.jdk }}
+-          distribution: 'temurin'
+-          cache: maven
+-      - name: Build with Maven
+-        run: mvn test
+-      - name: Configure settings.xml
+-        run: |
+-          mkdir -p ~/.m2
+-          echo "<settings><servers><server><id>clojars</id><username>${{ secrets.CLOJARS_USER }}-clojars</username><password>${{ secrets.CLOJARS_PASSWORD }}</password></server></servers></settings>" > ~/.m2/settings.xml
+
+From 1c9daf1556f86b6465eed952d263207fc3f416f1 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Tue, 17 Jun 2025 05:50:00 +0000
+Subject: [PATCH 17/32] tabs
+
+---
+ src/jvm/clojure/lang/LispReader.java | 314 +++++++++++++--------------
+ 1 file changed, 157 insertions(+), 157 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index c01a3c941e..c351b4ebd4 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1043,30 +1043,30 @@ else if(sym.ns == null && sym.name.startsWith("."))
+ 				{
+ 				// Simply quote method names.
+ 				}
+-            else if(resolver != null)
+-                {
+-                Symbol nsym = null;
+-                if(sym.ns != null){
+-                    Symbol alias = Symbol.intern(null, sym.ns);
+-                    nsym = resolver.resolveClass(alias);
+-                    if(nsym == null)
+-                        nsym = resolver.resolveAlias(alias);
+-                    }
+-                if(nsym != null){
+-                    // Classname/foo -> package.qualified.Classname/foo
+-                    sym = Symbol.intern(nsym.name, sym.name);
+-                    }
+-                else if(sym.ns == null){
+-                    Symbol rsym = resolver.resolveClass(sym);
+-                    if(rsym == null)
+-                        rsym = resolver.resolveVar(sym);
+-                    if(rsym != null)
+-                        sym = rsym;
+-                    else
+-                        sym = Symbol.intern(resolver.currentNS().name,sym.name);
+-                }
+-                //leave alone if qualified
+-                }
++			else if(resolver != null)
++				{
++					Symbol nsym = null;
++					if(sym.ns != null){
++						Symbol alias = Symbol.intern(null, sym.ns);
++						nsym = resolver.resolveClass(alias);
++						if(nsym == null)
++						    nsym = resolver.resolveAlias(alias);
++						}
++					if(nsym != null){
++						// Classname/foo -> package.qualified.Classname/foo
++						sym = Symbol.intern(nsym.name, sym.name);
++						}
++					else if(sym.ns == null){
++						Symbol rsym = resolver.resolveClass(sym);
++						if(rsym == null)
++							rsym = resolver.resolveVar(sym);
++						if(rsym != null)
++							sym = rsym;
++						else
++							sym = Symbol.intern(resolver.currentNS().name,sym.name);
++					}
++					//leave alone if qualified
++					}
+ 			else
+ 				{
+ 				Object maybeClass = null;
+@@ -1095,70 +1095,70 @@ else if(form instanceof IPersistentCollection)
+ 			else if(form instanceof IPersistentMap)
+ 				{
+ 				IPersistentVector keyvals = flattenMap(form);
+-        ISeq seq = keyvals.seq();
+-        if(hasSplice(seq))
+-          ret = RT.list(APPLY, HASHMAP, RT.cons(CONCAT, sqExpandList(seq)));
+-        else if(seq == null)
+-          ret = PersistentArrayMap.EMPTY;
+-        else if(seq.count() == 2)
+-          ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
+-            //TODO flatten constants
+-        else
+-          ret = RT.cons(HASHMAP, sqExpandFlat(seq));
++				ISeq seq = keyvals.seq();
++				if(hasSplice(seq))
++					ret = RT.list(APPLY, HASHMAP, RT.cons(CONCAT, sqExpandList(seq)));
++				else if(seq == null)
++					ret = PersistentArrayMap.EMPTY;
++				else if(seq.count() == 2)
++					ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
++					//TODO flatten constants
++				else
++					ret = RT.cons(HASHMAP, sqExpandFlat(seq));
+ 				}
+ 			else if(form instanceof IPersistentVector)
+ 				{
+-        ISeq seq = ((IPersistentVector) form).seq();
+-        if(hasSplice(seq))
+-          if(seq.count() == 1)
+-            ret = RT.cons(VEC, sqExpandList(seq));
+-          else if(hasOnlyTrailingSplice(seq))
+-            ret = RT.cons(APPLY, RT.cons(VECTOR, sqExpandFlat(seq)));
+-          else
+-            ret = RT.list(VEC, RT.cons(CONCAT, sqExpandList(seq)));
+-        else
+-          {
+-          ISeq flat = sqExpandFlat(seq);
+-          if(seq == null)
+-            ret = PersistentVector.EMPTY;
+-          else if(isAllQuoteLiftable(flat))
+-            ret = RT.list(QUOTE, LazilyPersistentVector.create(sqLiftQuoted(flat)));
+-          else
+-            ret = LazilyPersistentVector.create(flat);
+-          }
++				ISeq seq = ((IPersistentVector) form).seq();
++				if(hasSplice(seq))
++					if(seq.count() == 1)
++						ret = RT.cons(VEC, sqExpandList(seq));
++					else if(hasOnlyTrailingSplice(seq))
++						ret = RT.cons(APPLY, RT.cons(VECTOR, sqExpandFlat(seq)));
++					else
++						ret = RT.list(VEC, RT.cons(CONCAT, sqExpandList(seq)));
++				else
++					{
++					ISeq flat = sqExpandFlat(seq);
++					if(seq == null)
++						ret = PersistentVector.EMPTY;
++					else if(isAllQuoteLiftable(flat))
++						ret = RT.list(QUOTE, LazilyPersistentVector.create(sqLiftQuoted(flat)));
++					else
++						ret = LazilyPersistentVector.create(flat);
++					}
+ 				}
+ 			else if(form instanceof IPersistentSet)
+ 				{
+-        ISeq seq = ((IPersistentSet) form).seq();
+-        if(hasSplice(seq))
+-				  ret = RT.list(APPLY, HASHSET, RT.cons(CONCAT, sqExpandList(seq)));
+-        else if(seq == null)
+-          ret = PersistentHashSet.EMPTY;
+-        else
+-				  ret = RT.cons(HASHSET, sqExpandFlat(seq));
++				ISeq seq = ((IPersistentSet) form).seq();
++				if(hasSplice(seq))
++					ret = RT.list(APPLY, HASHSET, RT.cons(CONCAT, sqExpandList(seq)));
++				else if(seq == null)
++					ret = PersistentHashSet.EMPTY;
++				else
++					ret = RT.cons(HASHSET, sqExpandFlat(seq));
+ 				}
+ 			else if(form instanceof ISeq || form instanceof IPersistentList)
+ 				{
+ 				ISeq seq = RT.seq(form);
+ 				if(seq == null)
+ 					ret = PersistentList.EMPTY;
+-        //TODO handle `(deftype* ~1 ~2 ~3 ~4 :implements ~5 ~@v1 ~@v2)
+-        // as (list* 'deftype* ~1 ~2 ~3 ~4 :implements ~5 (concat v1 v2))
+-        else if(hasSplice(seq))
+-          {
+-          if(hasOnlyTrailingSplice(seq))
+-            ret = RT.cons(LIST_STAR, sqExpandFlat(seq));
+-          else
+-            ret = RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq)));
+-          }
++				//TODO handle `(deftype* ~1 ~2 ~3 ~4 :implements ~5 ~@v1 ~@v2)
++				// as (list* 'deftype* ~1 ~2 ~3 ~4 :implements ~5 (concat v1 v2))
++				else if(hasSplice(seq))
++					{
++					if(hasOnlyTrailingSplice(seq))
++						ret = RT.cons(LIST_STAR, sqExpandFlat(seq));
++					else
++						ret = RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq)));
++					}
+ 				else
+-          {
+-          ISeq flat = sqExpandFlat(seq);
+-          if(isAllQuoteLiftable(flat))
+-            ret = RT.list(QUOTE, sqLiftQuoted(flat));
+-          else
+-            ret = RT.cons(LIST, flat);
+-          }
++					{
++					ISeq flat = sqExpandFlat(seq);
++					if(isAllQuoteLiftable(flat))
++						ret = RT.list(QUOTE, sqLiftQuoted(flat));
++					else
++						ret = RT.cons(LIST, flat);
++					}
+ 				}
+ 			else
+ 				throw new UnsupportedOperationException("Unknown Collection type");
+@@ -1167,7 +1167,7 @@ else if(form instanceof Keyword
+ 		        || form instanceof Number
+ 		        || form instanceof Character
+ 		        || form instanceof String
+-            || form == null)
++		        || form == null)
+ 			ret = form;
+ 		else
+ 			ret = RT.list(Compiler.QUOTE, form);
+@@ -1192,69 +1192,69 @@ private static boolean hasOnlyTrailingSplice(ISeq seq) {
+ 	}
+ 
+ 	private static boolean isQuoteLiftable(Object form) {
+-    if(form instanceof Keyword
+-        || form instanceof Number
+-        || form instanceof Character
+-        || form instanceof String
+-        || form == null)
+-      return true;
+-    else if(form instanceof IPersistentVector)
+-      {
+-      return isAllQuoteLiftable(RT.seq(form));
+-      }
+-    else if(form instanceof ISeq || form instanceof IPersistentList)
+-      {
+-      ISeq seq = RT.seq(form);
+-      if(seq == null)
+-        return true;
+-      else if(seq.count() == 2 && Util.equals(RT.first(form),QUOTE))
+-        return true;
+-      else
+-        return false;
+-      }
+-    else
+-      return false;
++		if(form instanceof Keyword
++		    || form instanceof Number
++		    || form instanceof Character
++		    || form instanceof String
++		    || form == null)
++		  return true;
++		else if(form instanceof IPersistentVector)
++		  {
++		  return isAllQuoteLiftable(RT.seq(form));
++		  }
++		else if(form instanceof ISeq || form instanceof IPersistentList)
++		  {
++		  ISeq seq = RT.seq(form);
++		  if(seq == null)
++		    return true;
++		  else if(seq.count() == 2 && Util.equals(RT.first(form),QUOTE))
++		    return true;
++		  else
++		    return false;
++		  }
++		else
++		  return false;
+ 	}
+ 
+   //TODO maps
+ 	private static Object liftQuoted(Object form) {
+-    if(form instanceof Keyword
+-        || form instanceof Number
+-        || form instanceof Character
+-        || form instanceof String
+-        || form == null
+-        || form instanceof IPersistentVector)
+-      return form;
+-    else if(form instanceof ISeq || form instanceof IPersistentList)
+-      {
+-      ISeq seq = RT.seq(form);
+-      if(seq == null)
+-        return form;
+-      else if(seq.count() == 2 && Util.equals(RT.first(form),QUOTE))
+-        return RT.second(seq);
+-      else
+-        throw Util.runtimeException("cannot lift "+form);
+-      }
+-    else
+-      throw Util.runtimeException("cannot lift"+form);
++		if(form instanceof Keyword
++		    || form instanceof Number
++		    || form instanceof Character
++		    || form instanceof String
++		    || form == null
++		    || form instanceof IPersistentVector)
++		  return form;
++		else if(form instanceof ISeq || form instanceof IPersistentList)
++		  {
++		  ISeq seq = RT.seq(form);
++		  if(seq == null)
++		    return form;
++		  else if(seq.count() == 2 && Util.equals(RT.first(form),QUOTE))
++		    return RT.second(seq);
++		  else
++		    throw Util.runtimeException("cannot lift "+form);
++		  }
++		else
++		  throw Util.runtimeException("cannot lift"+form);
+ 	}
+ 
+ 	private static boolean isAllQuoteLiftable(ISeq seq) {
+ 		for(; seq != null; seq = seq.next())
+ 			{
+ 			if(!isQuoteLiftable(seq.first()))
+-        return false;
++				return false;
+ 			}
+-    return true;
++		return true;
+ 	}
+ 
+ 	private static boolean hasSplice(ISeq seq) {
+ 		for(; seq != null; seq = seq.next())
+ 			{
+ 			if(isUnquoteSplicing(seq.first()))
+-        return true;
++				return true;
+ 			}
+-    return false;
++		return false;
+ 	}
+ 
+ 	private static ISeq sqLiftQuoted(ISeq seq) {
+@@ -1263,7 +1263,7 @@ private static ISeq sqLiftQuoted(ISeq seq) {
+ 			{
+ 			Object item = seq.first();
+ 			if(isUnquote(item) || isUnquoteSplicing(item))
+-        throw Util.runtimeException("cannot lift unquoted");
++				throw Util.runtimeException("cannot lift unquoted");
+ 			else
+ 				ret = ret.cons(liftQuoted(item));
+ 			}
+@@ -1276,7 +1276,7 @@ private static ISeq sqExpandFlat(ISeq seq) {
+ 			{
+ 			Object item = seq.first();
+ 			if(isUnquote(item) || isUnquoteSplicing(item))
+-        // add splice as collection so it can be passed to list*
++				// add splice as collection so it can be passed to list*
+ 				ret = ret.cons(RT.second(item));
+ 			else
+ 				ret = ret.cons(syntaxQuote(item));
+@@ -1290,41 +1290,41 @@ private static ISeq sqExpandList(ISeq seq) {
+ 			{
+ 			Object item = seq.first();
+ 			if(isUnquoteSplicing(item))
+-        {
++				{
+ 				ret = ret.cons(RT.second(item));
+-        }
+-      else
+-        {
+-        //group contiguous values between unquote-splices
+-        // [1 2 ~@a 3 4] => [[1 2] a [3 4]]
+-        // TODO if all quoted, lift to group level
+-        IPersistentVector group = PersistentVector.EMPTY;
+-        while(true)
+-          {
+-          if(isUnquote(item))
+-            group = group.cons(RT.second(item));
+-          else
+-            group = group.cons(syntaxQuote(item));
+-          seq = seq.next();
+-          if(seq != null)
+-            {
+-            item = seq.first();
+-            if(isUnquoteSplicing(item))
+-              {
+-              ret = ret.cons(group);
+-              ret = ret.cons(RT.second(item));
+-              break;
+-              }
+-            }
+-          else
+-            {
+-            ret = ret.cons(group);
+-            break;
+-            }
+-          }
+-        }
+-      if(seq == null)
+-        break;
++				}
++			else
++				{
++				//group contiguous values between unquote-splices
++				// [1 2 ~@a 3 4] => [[1 2] a [3 4]]
++				// TODO if all quoted, lift to group level
++				IPersistentVector group = PersistentVector.EMPTY;
++				while(true)
++					{
++					if(isUnquote(item))
++						group = group.cons(RT.second(item));
++					else
++						group = group.cons(syntaxQuote(item));
++					seq = seq.next();
++					if(seq != null)
++						{
++						item = seq.first();
++						if(isUnquoteSplicing(item))
++							{
++							ret = ret.cons(group);
++							ret = ret.cons(RT.second(item));
++							break;
++							}
++						}
++					else
++						{
++						ret = ret.cons(group);
++						break;
++						}
++					}
++				}
++			if(seq == null)
++				break;
+ 			}
+ 		return ret.seq();
+ 	}
+
+From 965fd710b619fe06c12e26579624eb8a73656d79 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Tue, 17 Jun 2025 06:00:21 +0000
+Subject: [PATCH 18/32] undo
+
+---
+ src/jvm/clojure/lang/LispReader.java | 48 ++++++++++++++--------------
+ 1 file changed, 24 insertions(+), 24 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index c351b4ebd4..543adc9303 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1043,30 +1043,30 @@ else if(sym.ns == null && sym.name.startsWith("."))
+ 				{
+ 				// Simply quote method names.
+ 				}
+-			else if(resolver != null)
+-				{
+-					Symbol nsym = null;
+-					if(sym.ns != null){
+-						Symbol alias = Symbol.intern(null, sym.ns);
+-						nsym = resolver.resolveClass(alias);
+-						if(nsym == null)
+-						    nsym = resolver.resolveAlias(alias);
+-						}
+-					if(nsym != null){
+-						// Classname/foo -> package.qualified.Classname/foo
+-						sym = Symbol.intern(nsym.name, sym.name);
+-						}
+-					else if(sym.ns == null){
+-						Symbol rsym = resolver.resolveClass(sym);
+-						if(rsym == null)
+-							rsym = resolver.resolveVar(sym);
+-						if(rsym != null)
+-							sym = rsym;
+-						else
+-							sym = Symbol.intern(resolver.currentNS().name,sym.name);
+-					}
+-					//leave alone if qualified
+-					}
++            else if(resolver != null)
++                {
++                Symbol nsym = null;
++                if(sym.ns != null){
++                    Symbol alias = Symbol.intern(null, sym.ns);
++                    nsym = resolver.resolveClass(alias);
++                    if(nsym == null)
++                        nsym = resolver.resolveAlias(alias);
++                    }
++                if(nsym != null){
++                    // Classname/foo -> package.qualified.Classname/foo
++                    sym = Symbol.intern(nsym.name, sym.name);
++                    }
++                else if(sym.ns == null){
++                    Symbol rsym = resolver.resolveClass(sym);
++                    if(rsym == null)
++                        rsym = resolver.resolveVar(sym);
++                    if(rsym != null)
++                        sym = rsym;
++                    else
++                        sym = Symbol.intern(resolver.currentNS().name,sym.name);
++                }
++                //leave alone if qualified
++                }
+ 			else
+ 				{
+ 				Object maybeClass = null;
+
+From 1aa755424e8886e3b7b7727bd955ff31783c63b7 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Tue, 17 Jun 2025 06:02:45 +0000
+Subject: [PATCH 19/32] ws
+
+---
+ src/jvm/clojure/lang/LispReader.java | 42 ++++++++++++++--------------
+ 1 file changed, 21 insertions(+), 21 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 543adc9303..76ec4d74ca 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1186,37 +1186,37 @@ private static boolean hasOnlyTrailingSplice(ISeq seq) {
+ 		for(; seq != null; seq = seq.next())
+ 			{
+ 			if(isUnquoteSplicing(seq.first()))
+-        return seq.next() == null;
++				return seq.next() == null;
+ 			}
+-    throw Util.runtimeException("expected splice");
++		throw Util.runtimeException("expected splice");
+ 	}
+ 
+ 	private static boolean isQuoteLiftable(Object form) {
+ 		if(form instanceof Keyword
+-		    || form instanceof Number
+-		    || form instanceof Character
+-		    || form instanceof String
+-		    || form == null)
+-		  return true;
++				|| form instanceof Number
++				|| form instanceof Character
++				|| form instanceof String
++				|| form == null)
++			return true;
+ 		else if(form instanceof IPersistentVector)
+-		  {
+-		  return isAllQuoteLiftable(RT.seq(form));
+-		  }
++			{
++			return isAllQuoteLiftable(RT.seq(form));
++			}
+ 		else if(form instanceof ISeq || form instanceof IPersistentList)
+-		  {
+-		  ISeq seq = RT.seq(form);
+-		  if(seq == null)
+-		    return true;
+-		  else if(seq.count() == 2 && Util.equals(RT.first(form),QUOTE))
+-		    return true;
+-		  else
+-		    return false;
+-		  }
++			{
++			ISeq seq = RT.seq(form);
++			if(seq == null)
++				return true;
++			else if(seq.count() == 2 && Util.equals(RT.first(form),QUOTE))
++				return true;
++			else
++				return false;
++			}
+ 		else
+-		  return false;
++			return false;
+ 	}
+ 
+-  //TODO maps
++	//TODO maps
+ 	private static Object liftQuoted(Object form) {
+ 		if(form instanceof Keyword
+ 		    || form instanceof Number
+
+From 9020c377546b465a7ba2683d3da40a48720e97be Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Tue, 17 Jun 2025 07:28:32 +0000
+Subject: [PATCH 20/32] doc
+
+---
+ src/jvm/clojure/lang/LispReader.java | 35 ++++++++++++++++++++++++++--
+ 1 file changed, 33 insertions(+), 2 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 76ec4d74ca..d32a790452 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1096,13 +1096,17 @@ else if(form instanceof IPersistentMap)
+ 				{
+ 				IPersistentVector keyvals = flattenMap(form);
+ 				ISeq seq = keyvals.seq();
++				// `{~@k ~@v} => (apply hash-map (concat k v))
+ 				if(hasSplice(seq))
+ 					ret = RT.list(APPLY, HASHMAP, RT.cons(CONCAT, sqExpandList(seq)));
++				// `{} => {}
+ 				else if(seq == null)
+ 					ret = PersistentArrayMap.EMPTY;
++				// `{k v} => {k v}
+ 				else if(seq.count() == 2)
+ 					ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
+ 					//TODO flatten constants
++				// `{k v ...} => (hash-map k v ...)
+ 				else
+ 					ret = RT.cons(HASHMAP, sqExpandFlat(seq));
+ 				}
+@@ -1110,19 +1114,25 @@ else if(form instanceof IPersistentVector)
+ 				{
+ 				ISeq seq = ((IPersistentVector) form).seq();
+ 				if(hasSplice(seq))
++					// `[~@v] => (vec v)
+ 					if(seq.count() == 1)
+ 						ret = RT.cons(VEC, sqExpandList(seq));
++					// `[a b ~@c] => (apply vector a b c)
+ 					else if(hasOnlyTrailingSplice(seq))
+ 						ret = RT.cons(APPLY, RT.cons(VECTOR, sqExpandFlat(seq)));
++					// `[~@a b ~@c] => (vec (concat a [b] c))
+ 					else
+ 						ret = RT.list(VEC, RT.cons(CONCAT, sqExpandList(seq)));
+ 				else
+ 					{
+ 					ISeq flat = sqExpandFlat(seq);
++					// `[] => []
+ 					if(seq == null)
+ 						ret = PersistentVector.EMPTY;
++					// `[:a 1 'b] => '[:a 1 b]
+ 					else if(isAllQuoteLiftable(flat))
+ 						ret = RT.list(QUOTE, LazilyPersistentVector.create(sqLiftQuoted(flat)));
++					// `[a b c] => [a b c]
+ 					else
+ 						ret = LazilyPersistentVector.create(flat);
+ 					}
+@@ -1130,32 +1140,41 @@ else if(isAllQuoteLiftable(flat))
+ 			else if(form instanceof IPersistentSet)
+ 				{
+ 				ISeq seq = ((IPersistentSet) form).seq();
++				// `#{~@a b ~@c} => (apply hash-set (concat a [b] c))
+ 				if(hasSplice(seq))
+ 					ret = RT.list(APPLY, HASHSET, RT.cons(CONCAT, sqExpandList(seq)));
++				// `#{} => #{}
+ 				else if(seq == null)
+ 					ret = PersistentHashSet.EMPTY;
++				// `#{a b c} => (hash-set a b c)
+ 				else
+ 					ret = RT.cons(HASHSET, sqExpandFlat(seq));
+ 				}
+ 			else if(form instanceof ISeq || form instanceof IPersistentList)
+ 				{
+ 				ISeq seq = RT.seq(form);
++				// `() => ()
+ 				if(seq == null)
+ 					ret = PersistentList.EMPTY;
+-				//TODO handle `(deftype* ~1 ~2 ~3 ~4 :implements ~5 ~@v1 ~@v2)
+-				// as (list* 'deftype* ~1 ~2 ~3 ~4 :implements ~5 (concat v1 v2))
++				//TODO use list* leading args until first splice.
++				// e.g., `(deftype* ~1 ~2 ~3 ~4 :implements ~5 ~@v1 ~@v2)
++				//       => (list* 'deftype* 1 2 3 4 :implements 5 (concat v1 v2))
+ 				else if(hasSplice(seq))
+ 					{
++					// `(a b ~@c) => (list* a b c)
+ 					if(hasOnlyTrailingSplice(seq))
+ 						ret = RT.cons(LIST_STAR, sqExpandFlat(seq));
++					// `(~@a b ~@c) => (seq (concat a [b] c))
+ 					else
+ 						ret = RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq)));
+ 					}
+ 				else
+ 					{
+ 					ISeq flat = sqExpandFlat(seq);
++					// `(:a 1 'b) => '(:a 1 b)
+ 					if(isAllQuoteLiftable(flat))
+ 						ret = RT.list(QUOTE, sqLiftQuoted(flat));
++					// `(a b c) => (list a b c)
+ 					else
+ 						ret = RT.cons(LIST, flat);
+ 					}
+@@ -1182,6 +1201,8 @@ else if(form instanceof Keyword
+ 		return ret;
+ 	}
+ 
++	// returns true iff only the final seq elem is ~@.
++	// throws if seq has no splices.
+ 	private static boolean hasOnlyTrailingSplice(ISeq seq) {
+ 		for(; seq != null; seq = seq.next())
+ 			{
+@@ -1191,6 +1212,7 @@ private static boolean hasOnlyTrailingSplice(ISeq seq) {
+ 		throw Util.runtimeException("expected splice");
+ 	}
+ 
++	// returns true if form is or can be converted to a constant.
+ 	private static boolean isQuoteLiftable(Object form) {
+ 		if(form instanceof Keyword
+ 				|| form instanceof Number
+@@ -1200,15 +1222,20 @@ private static boolean isQuoteLiftable(Object form) {
+ 			return true;
+ 		else if(form instanceof IPersistentVector)
+ 			{
++			// [:a 1 'b] => true (transform to (quote [:a 1 b]))
++			// [a b c]   => false
+ 			return isAllQuoteLiftable(RT.seq(form));
+ 			}
+ 		else if(form instanceof ISeq || form instanceof IPersistentList)
+ 			{
+ 			ISeq seq = RT.seq(form);
++			// () => true (already constant)
+ 			if(seq == null)
+ 				return true;
++			// (quote X) => true (already constant)
+ 			else if(seq.count() == 2 && Util.equals(RT.first(form),QUOTE))
+ 				return true;
++			// (+ 1 2) => false
+ 			else
+ 				return false;
+ 			}
+@@ -1239,6 +1266,7 @@ else if(seq.count() == 2 && Util.equals(RT.first(form),QUOTE))
+ 		  throw Util.runtimeException("cannot lift"+form);
+ 	}
+ 
++	// returns true iff all seq elems can be converted to constants
+ 	private static boolean isAllQuoteLiftable(ISeq seq) {
+ 		for(; seq != null; seq = seq.next())
+ 			{
+@@ -1248,6 +1276,7 @@ private static boolean isAllQuoteLiftable(ISeq seq) {
+ 		return true;
+ 	}
+ 
++	// returns true iff seq contains ~@
+ 	private static boolean hasSplice(ISeq seq) {
+ 		for(; seq != null; seq = seq.next())
+ 			{
+@@ -1257,6 +1286,8 @@ private static boolean hasSplice(ISeq seq) {
+ 		return false;
+ 	}
+ 
++	// transform each element of seq as if seq was already (syntax) quoted
++	// sqLiftQuoted(('a 1 :b)) => (a 1 :b)
+ 	private static ISeq sqLiftQuoted(ISeq seq) {
+ 		PersistentVector ret = PersistentVector.EMPTY;
+ 		for(; seq != null; seq = seq.next())
+
+From 527b648b2164c1853404b77cbd44372bda1a03de Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Tue, 17 Jun 2025 07:41:19 +0000
+Subject: [PATCH 21/32] doc
+
+---
+ src/jvm/clojure/lang/LispReader.java | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index d32a790452..f36006d911 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1243,6 +1243,7 @@ else if(seq.count() == 2 && Util.equals(RT.first(form),QUOTE))
+ 			return false;
+ 	}
+ 
++	// transform form as if it was already (syntax) quoted.
+ 	//TODO maps
+ 	private static Object liftQuoted(Object form) {
+ 		if(form instanceof Keyword
+@@ -1286,8 +1287,9 @@ private static boolean hasSplice(ISeq seq) {
+ 		return false;
+ 	}
+ 
+-	// transform each element of seq as if seq was already (syntax) quoted
+-	// sqLiftQuoted(('a 1 :b)) => (a 1 :b)
++	// transform each element of seq as if seq was already (syntax) quoted.
++	// ~ and ~@ not allowed.
++	// e.g., sqLiftQuoted(('a 1 :b)) => (a 1 :b)
+ 	private static ISeq sqLiftQuoted(ISeq seq) {
+ 		PersistentVector ret = PersistentVector.EMPTY;
+ 		for(; seq != null; seq = seq.next())
+@@ -1301,6 +1303,8 @@ private static ISeq sqLiftQuoted(ISeq seq) {
+ 		return ret.seq();
+ 	}
+ 
++	// treat ~@ as if it was ~. assumes caller has analyzed ~@ positions beforehand.
++	// useful for generating list* calls if you know only the last elem is ~@.
+ 	private static ISeq sqExpandFlat(ISeq seq) {
+ 		PersistentVector ret = PersistentVector.EMPTY;
+ 		for(; seq != null; seq = seq.next())
+@@ -1315,6 +1319,9 @@ private static ISeq sqExpandFlat(ISeq seq) {
+ 		return ret.seq();
+ 	}
+ 
++	// transform each element of seq as if seq was already (syntax) quoted.
++	// ~ and ~@ allowed.
++	// sqExpandList((~@a b ~@c ~d)) => (a `[b] c [d])
+ 	private static ISeq sqExpandList(ISeq seq) {
+ 		PersistentVector ret = PersistentVector.EMPTY;
+ 		for(; seq != null; seq = seq.next())
+
+From d3b322099d3e859193020600b6fb358739fb31a0 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Tue, 17 Jun 2025 17:30:04 +0000
+Subject: [PATCH 22/32] fix bug
+
+---
+ src/jvm/clojure/lang/LispReader.java | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index f36006d911..96799490eb 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -46,7 +46,7 @@ public class LispReader{
+ static Symbol UNQUOTE = Symbol.intern("clojure.core", "unquote");
+ static Symbol UNQUOTE_SPLICING = Symbol.intern("clojure.core", "unquote-splicing");
+ static Symbol CONCAT = Symbol.intern("clojure.core", "concat");
+-static Symbol SEQ = Symbol.intern("clojure.core", "seq");
++//static Symbol SEQ = Symbol.intern("clojure.core", "seq");
+ static Symbol LIST = Symbol.intern("clojure.core", "list");
+ static Symbol LIST_STAR = Symbol.intern("clojure.core", "list*");
+ static Symbol APPLY = Symbol.intern("clojure.core", "apply");
+@@ -1164,9 +1164,11 @@ else if(hasSplice(seq))
+ 					// `(a b ~@c) => (list* a b c)
+ 					if(hasOnlyTrailingSplice(seq))
+ 						ret = RT.cons(LIST_STAR, sqExpandFlat(seq));
+-					// `(~@a b ~@c) => (seq (concat a [b] c))
++					// `(~@a b ~@c) => (list* (concat a [b] c))
++					// using list* instead of seq here to handle (~@a ~@b) when a=() b=().
++					// since (seq (concat () ())) => nil.
+ 					else
+-						ret = RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq)));
++						ret = RT.list(LIST_STAR, RT.cons(CONCAT, sqExpandList(seq)));
+ 					}
+ 				else
+ 					{
+@@ -1186,6 +1188,7 @@ else if(form instanceof Keyword
+ 		        || form instanceof Number
+ 		        || form instanceof Character
+ 		        || form instanceof String
++		        // `nil => nil
+ 		        || form == null)
+ 			ret = form;
+ 		else
+
+From 774ffb8a6dadd531efe80573ec84cf1cbbd31d69 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Tue, 17 Jun 2025 18:28:02 +0000
+Subject: [PATCH 23/32] add tests
+
+---
+ src/jvm/clojure/lang/LispReader.java  | 19 +++++---
+ test/clojure/test_clojure/reader.cljc | 63 +++++++++++++++++++++++++++
+ 2 files changed, 75 insertions(+), 7 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 96799490eb..7eface61e3 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1105,7 +1105,7 @@ else if(seq == null)
+ 				// `{k v} => {k v}
+ 				else if(seq.count() == 2)
+ 					ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
+-					//TODO flatten constants
++					//TODO if keys are all constants we can expand to {k v ...}, see `map constant keys` test
+ 				// `{k v ...} => (hash-map k v ...)
+ 				else
+ 					ret = RT.cons(HASHMAP, sqExpandFlat(seq));
+@@ -1141,12 +1141,17 @@ else if(form instanceof IPersistentSet)
+ 				{
+ 				ISeq seq = ((IPersistentSet) form).seq();
+ 				// `#{~@a b ~@c} => (apply hash-set (concat a [b] c))
++				// optimization ideas:
++				// - use (clojure.core/set ..) instead of (apply hash-set ..)
++				// - remove redundant (concat a) => a
++				// - if has just trailing splice, use fixed args of hash-set
++				//   - `#{~@a ~b c} => (apply hash-set b `c a)
+ 				if(hasSplice(seq))
+ 					ret = RT.list(APPLY, HASHSET, RT.cons(CONCAT, sqExpandList(seq)));
+ 				// `#{} => #{}
+ 				else if(seq == null)
+ 					ret = PersistentHashSet.EMPTY;
+-				// `#{a b c} => (hash-set a b c)
++				// `#{a ~b c} => (hash-set `a b `c)
+ 				else
+ 					ret = RT.cons(HASHSET, sqExpandFlat(seq));
+ 				}
+@@ -1158,13 +1163,13 @@ else if(form instanceof ISeq || form instanceof IPersistentList)
+ 					ret = PersistentList.EMPTY;
+ 				//TODO use list* leading args until first splice.
+ 				// e.g., `(deftype* ~1 ~2 ~3 ~4 :implements ~5 ~@v1 ~@v2)
+-				//       => (list* 'deftype* 1 2 3 4 :implements 5 (concat v1 v2))
++				//       => (list* `deftype* 1 2 3 4 `:implements 5 (concat v1 v2))
+ 				else if(hasSplice(seq))
+ 					{
+-					// `(a b ~@c) => (list* a b c)
++					// `(~a b ~@c) => (list* a `b c)
+ 					if(hasOnlyTrailingSplice(seq))
+ 						ret = RT.cons(LIST_STAR, sqExpandFlat(seq));
+-					// `(~@a b ~@c) => (list* (concat a [b] c))
++					// `(~@a b ~@c) => (list* (concat a [`b] c))
+ 					// using list* instead of seq here to handle (~@a ~@b) when a=() b=().
+ 					// since (seq (concat () ())) => nil.
+ 					else
+@@ -1176,7 +1181,7 @@ else if(hasSplice(seq))
+ 					// `(:a 1 'b) => '(:a 1 b)
+ 					if(isAllQuoteLiftable(flat))
+ 						ret = RT.list(QUOTE, sqLiftQuoted(flat));
+-					// `(a b c) => (list a b c)
++					// `(a ~b c) => (list `a b `c)
+ 					else
+ 						ret = RT.cons(LIST, flat);
+ 					}
+@@ -1188,7 +1193,7 @@ else if(form instanceof Keyword
+ 		        || form instanceof Number
+ 		        || form instanceof Character
+ 		        || form instanceof String
+-		        // `nil => nil
++		        // `nil => nil, before (quote nil)
+ 		        || form == null)
+ 			ret = form;
+ 		else
+diff --git a/test/clojure/test_clojure/reader.cljc b/test/clojure/test_clojure/reader.cljc
+index a0e1f1f13e..dd4645354a 100644
+--- a/test/clojure/test_clojure/reader.cljc
++++ b/test/clojure/test_clojure/reader.cljc
+@@ -22,6 +22,7 @@
+                                 read-instant-calendar
+                                 read-instant-timestamp]])
+   (:require clojure.walk
++            clojure.test-helper ;; thrown-with-cause-msg?
+             [clojure.edn :as edn]
+             [clojure.test.generative :refer (defspec)]
+             [clojure.test-clojure.generators :as cgen]
+@@ -800,3 +801,65 @@
+   (eval (-> "^{:line 42 :column 99} (defn explicit-line-numbering [])" str->lnpr read))
+   (is (= {:line 42 :column 99}
+          (-> 'explicit-line-numbering resolve meta (select-keys [:line :column])))))
++
++(deftest expansion-tests
++  (binding [*ns* (the-ns 'clojure.test-clojure.reader)]
++    (is (= [] '`[]))
++    (is (= '[1 a] '`[1 ~a]))
++    (is (= '[local-variable] '`[~local-variable]))
++    (is (= '(clojure.core/vec local-variable) '`[~@local-variable]))
++    ;; could also introduce clojure.core/set, see note in clojure.lang.LispReader/syntaxQuote
++    (is (= #{} '`#{}))
++    (is (= ;#{a} ;;FIXME
++           '(clojure.core/hash-set a)
++           '`#{~a}))
++    (is (= ;'(clojure.core/apply clojure.core/hash-set a) ;;FIXME
++           '(clojure.core/apply clojure.core/hash-set (clojure.core/concat a))
++           '`#{~@a}))
++    (is (contains? #{'(clojure.core/hash-set a b)
++                     '(clojure.core/hash-set b a)}
++                   '`#{~a ~b}))
++    (is (contains?
++          #{'(clojure.core/apply clojure.core/hash-set (clojure.core/concat a b))
++            '(clojure.core/apply clojure.core/hash-set (clojure.core/concat b a))}
++          '`#{~@a ~@b}))
++    (is (= () '`()))
++    (is (= '(clojure.core/list 1 local-variable) '`(1 ~local-variable)))
++    (is (= ;'(clojure.core/list* 1 (clojure.core/concat local-variable [2])) ;;FIXME
++           '(clojure.core/list* (clojure.core/concat [1] local-variable [2]))
++           '`(1 ~@local-variable 2)))
++    (is (= '(clojure.core/list* 1 local-variable) '`(1 ~@local-variable)))
++    (is (= '(clojure.core/list* local-variable) '`(~@local-variable)))
++    (is (= {} '`{}))
++    (is (= '{local-variable1 local-variable2} '`{~local-variable1 ~local-variable2}))
++    (testing "map constant keys"
++      ; FIXME if all keys are constant, should expand to a map literal
++      ; here, '{:a local-variable2 :b local-variable4}
++      (is (contains? 
++             #{'(clojure.core/hash-map :a local-variable2 :b local-variable4)
++               '(clojure.core/hash-map :b local-variable4 :a local-variable2)}
++             '`{:a ~local-variable2 :b ~local-variable4})))
++    (is (= '(clojure.core/hash-map :a local-variable2 'clojure.test-clojure.reader/a local-variable4)
++           '`{:a ~local-variable2 a ~local-variable4}))
++    (is (= '(clojure.core/hash-map local-variable1 local-variable2 local-variable3 local-variable4)
++           '`{~local-variable1 ~local-variable2 ~local-variable3 ~local-variable4}))
++    (is (= '(clojure.core/apply clojure.core/hash-map (clojure.core/concat local-variable1 local-variable2))
++           '`{~@local-variable1 ~@local-variable2}))
++    (is (= 42 '`42))
++    (is (= :a '`:a))
++    (is (= \a '`\a))
++    (is (= "a" '`"a"))
++    (is (nil? '`nil))
++    (is (= "(quote #\"a\")"
++           ;"#\"a\"" ;;FIXME
++           (pr-str '`#"a")))
++    ;;FIXME is this right?
++    (is (= "(quote (quote #\"a\"))" (pr-str '`'#"a")))
++    ;; demonstrates liftQuoted strategy. otherwise would be:
++    ;;   (clojure.core/list 'clojure.core/let [foo 42] (clojure.core/list 'clojure.core/+ 'clojure.test-clojure.reader/foo 'clojure.test-clojure.reader/foo))
++    ;; notice (list '+ 'foo 'foo) is optimized to '(+ foo foo)
++    (is (= '(clojure.core/list 'clojure.core/let [foo 42] '(clojure.core/+ clojure.test-clojure.reader/foo clojure.test-clojure.reader/foo))
++           '`(let [~foo 42] (+ foo foo))))
++    (is (= '(quote (nil)) '`(nil)))
++    (is (= '(quote foo) '`~'foo))
++    (is (= '(quote (foo foo)) (do '`(~'foo ~'foo))))))
+
+From 0a0752db234db34d0aef543f283489bb7b88c6c7 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Tue, 17 Jun 2025 18:38:50 +0000
+Subject: [PATCH 24/32] improve notes
+
+---
+ src/jvm/clojure/lang/LispReader.java  |  7 ++++---
+ test/clojure/test_clojure/reader.cljc | 16 ++++++++++------
+ 2 files changed, 14 insertions(+), 9 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 7eface61e3..8cf17d65d6 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1161,9 +1161,6 @@ else if(form instanceof ISeq || form instanceof IPersistentList)
+ 				// `() => ()
+ 				if(seq == null)
+ 					ret = PersistentList.EMPTY;
+-				//TODO use list* leading args until first splice.
+-				// e.g., `(deftype* ~1 ~2 ~3 ~4 :implements ~5 ~@v1 ~@v2)
+-				//       => (list* `deftype* 1 2 3 4 `:implements 5 (concat v1 v2))
+ 				else if(hasSplice(seq))
+ 					{
+ 					// `(~a b ~@c) => (list* a `b c)
+@@ -1172,6 +1169,10 @@ else if(hasSplice(seq))
+ 					// `(~@a b ~@c) => (list* (concat a [`b] c))
+ 					// using list* instead of seq here to handle (~@a ~@b) when a=() b=().
+ 					// since (seq (concat () ())) => nil.
++					//TODO use list* leading args until first splice.
++					// e.g., `(deftype* ~1 ~2 ~3 ~4 :implements ~5 ~@v1 ~@v2)
++					//       => (list* `deftype* 1 2 3 4 `:implements 5 (concat v1 v2))
++					// see "list* leading args" test
+ 					else
+ 						ret = RT.list(LIST_STAR, RT.cons(CONCAT, sqExpandList(seq)));
+ 					}
+diff --git a/test/clojure/test_clojure/reader.cljc b/test/clojure/test_clojure/reader.cljc
+index dd4645354a..8eb55197ac 100644
+--- a/test/clojure/test_clojure/reader.cljc
++++ b/test/clojure/test_clojure/reader.cljc
+@@ -808,7 +808,7 @@
+     (is (= '[1 a] '`[1 ~a]))
+     (is (= '[local-variable] '`[~local-variable]))
+     (is (= '(clojure.core/vec local-variable) '`[~@local-variable]))
+-    ;; could also introduce clojure.core/set, see note in clojure.lang.LispReader/syntaxQuote
++    ;; TODO could also introduce clojure.core/set as a runtime dep, see note in clojure.lang.LispReader/syntaxQuote
+     (is (= #{} '`#{}))
+     (is (= ;#{a} ;;FIXME
+            '(clojure.core/hash-set a)
+@@ -825,9 +825,10 @@
+           '`#{~@a ~@b}))
+     (is (= () '`()))
+     (is (= '(clojure.core/list 1 local-variable) '`(1 ~local-variable)))
+-    (is (= ;'(clojure.core/list* 1 (clojure.core/concat local-variable [2])) ;;FIXME
+-           '(clojure.core/list* (clojure.core/concat [1] local-variable [2]))
+-           '`(1 ~@local-variable 2)))
++    (testing "list* leading args"
++      (is (= ;'(clojure.core/list* 1 (clojure.core/concat local-variable [2])) ;;FIXME
++             '(clojure.core/list* (clojure.core/concat [1] local-variable [2]))
++             '`(1 ~@local-variable 2))))
+     (is (= '(clojure.core/list* 1 local-variable) '`(1 ~@local-variable)))
+     (is (= '(clojure.core/list* local-variable) '`(~@local-variable)))
+     (is (= {} '`{}))
+@@ -839,8 +840,11 @@
+              #{'(clojure.core/hash-map :a local-variable2 :b local-variable4)
+                '(clojure.core/hash-map :b local-variable4 :a local-variable2)}
+              '`{:a ~local-variable2 :b ~local-variable4})))
+-    (is (= '(clojure.core/hash-map :a local-variable2 'clojure.test-clojure.reader/a local-variable4)
+-           '`{:a ~local-variable2 a ~local-variable4}))
++    ;; TODO 
++    (is (contains?
++          #{'(clojure.core/hash-map :a local-variable2 'clojure.test-clojure.reader/a local-variable4)
++            '(clojure.core/hash-map 'clojure.test-clojure.reader/a local-variable4 :a local-variable2)}
++          '`{:a ~local-variable2 a ~local-variable4}))
+     (is (= '(clojure.core/hash-map local-variable1 local-variable2 local-variable3 local-variable4)
+            '`{~local-variable1 ~local-variable2 ~local-variable3 ~local-variable4}))
+     (is (= '(clojure.core/apply clojure.core/hash-map (clojure.core/concat local-variable1 local-variable2))
+
+From acaeace537eb0bbca33beb40a5db6e90b08e5e94 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Tue, 17 Jun 2025 18:42:55 +0000
+Subject: [PATCH 25/32] notes
+
+---
+ test/clojure/test_clojure/reader.cljc | 16 +++++++++-------
+ 1 file changed, 9 insertions(+), 7 deletions(-)
+
+diff --git a/test/clojure/test_clojure/reader.cljc b/test/clojure/test_clojure/reader.cljc
+index 8eb55197ac..b473d7a8d3 100644
+--- a/test/clojure/test_clojure/reader.cljc
++++ b/test/clojure/test_clojure/reader.cljc
+@@ -840,13 +840,15 @@
+              #{'(clojure.core/hash-map :a local-variable2 :b local-variable4)
+                '(clojure.core/hash-map :b local-variable4 :a local-variable2)}
+              '`{:a ~local-variable2 :b ~local-variable4})))
+-    ;; TODO 
+-    (is (contains?
+-          #{'(clojure.core/hash-map :a local-variable2 'clojure.test-clojure.reader/a local-variable4)
+-            '(clojure.core/hash-map 'clojure.test-clojure.reader/a local-variable4 :a local-variable2)}
+-          '`{:a ~local-variable2 a ~local-variable4}))
+-    (is (= '(clojure.core/hash-map local-variable1 local-variable2 local-variable3 local-variable4)
+-           '`{~local-variable1 ~local-variable2 ~local-variable3 ~local-variable4}))
++    ;; TODO should these cases expand to map literals? which cases are we trying to avoid?
++    ;; consider expressions like (let [a :a] `{:a 1 ~a 2})
++    (testing "map almost constant keys"
++      (is (contains?
++            #{'(clojure.core/hash-map :a local-variable2 'clojure.test-clojure.reader/a local-variable4)
++              '(clojure.core/hash-map 'clojure.test-clojure.reader/a local-variable4 :a local-variable2)}
++            '`{:a ~local-variable2 a ~local-variable4}))
++      (is (= '(clojure.core/hash-map local-variable1 local-variable2 local-variable3 local-variable4)
++             '`{~local-variable1 ~local-variable2 ~local-variable3 ~local-variable4})))
+     (is (= '(clojure.core/apply clojure.core/hash-map (clojure.core/concat local-variable1 local-variable2))
+            '`{~@local-variable1 ~@local-variable2}))
+     (is (= 42 '`42))
+
+From d49bd2126d5faa63f65fc78ada0ac2d5ad386629 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Tue, 17 Jun 2025 21:45:06 +0000
+Subject: [PATCH 26/32] doc
+
+---
+ doc/optimize-syntax-quote.md | 39 ++++++++++++++++++++++++++++++++++++
+ 1 file changed, 39 insertions(+)
+ create mode 100644 doc/optimize-syntax-quote.md
+
+diff --git a/doc/optimize-syntax-quote.md b/doc/optimize-syntax-quote.md
+new file mode 100644
+index 0000000000..b0bc605cfc
+--- /dev/null
++++ b/doc/optimize-syntax-quote.md
+@@ -0,0 +1,39 @@
++# Optimizing syntax quote
++
++- basically constant folding
++  - Q: doesn't that belong in the compiler?
++  - A: it may be faster overall to optimize the output of syntax quote.
++       e.g., there's less code to retraverse/optimize if you can directly
++             generate more efficient code with little overhead.
++
++
++## Benefits
++
++- syntax quotes compile to fewer bytecode instructions
++  - (premise: many defmacro's / macro helpers use syntax quote)
++  - faster macroexpand-1
++    - more computation done ahead-of-time
++      - e.g., [] is immediate instead of (apply vector (seq (concat)))
++    - improved code loading time
++      - from bytecode:
++      - from code:
++  - lower loading time of syntax-quoted collections by preserving literals
++    - better utilize existing code paths in compiler
++      - e.g., more opportunities to use IPersistentMap/.mapUniqueKeys rather than IPersistentMap/.map
++    - avoid redundant code paths
++      - e.g., (syntax-quote nil) => (quote nil) => analyze => analyzeSeq => ConstantExpr/.parse => NIL_EXPR
++              vs
++              (syntax-quote nil) => nil => analyze => NIL_EXPR
++  - faster loading of macros
++    - fewer instructions to compile
++    - tho maybe more work compiling constants
++  - smaller AOT footprint for defmacro-heavy libs
++    - e.g., clojure.jar 0.5% smaller
++  - HotSpot prefers smaller code size
++    - more flexibility for inlining (?)
++
++## Risks
++
++- increased minimum memory requirements
++  - need to store these larger constants somewhere rather than compute them as needed
++- it may indeed be much more effective to implement in compiler
+
+From 96954c47972fc87e5269b9244676250a42bbd9de Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Tue, 17 Jun 2025 21:46:59 +0000
+Subject: [PATCH 27/32] wip
+
+---
+ doc/optimize-syntax-quote.md | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/doc/optimize-syntax-quote.md b/doc/optimize-syntax-quote.md
+index b0bc605cfc..9275bd9825 100644
+--- a/doc/optimize-syntax-quote.md
++++ b/doc/optimize-syntax-quote.md
+@@ -37,3 +37,4 @@
+ - increased minimum memory requirements
+   - need to store these larger constants somewhere rather than compute them as needed
+ - it may indeed be much more effective to implement in compiler
++- increased compilation time via elaborate static analysis
+
+From 7214dbbff7f6432f16054303cc7efc7455c32d11 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Tue, 17 Jun 2025 21:54:14 +0000
+Subject: [PATCH 28/32] wip
+
+---
+ doc/optimize-syntax-quote.md | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/doc/optimize-syntax-quote.md b/doc/optimize-syntax-quote.md
+index 9275bd9825..b9125db48c 100644
+--- a/doc/optimize-syntax-quote.md
++++ b/doc/optimize-syntax-quote.md
+@@ -6,7 +6,6 @@
+        e.g., there's less code to retraverse/optimize if you can directly
+              generate more efficient code with little overhead.
+ 
+-
+ ## Benefits
+ 
+ - syntax quotes compile to fewer bytecode instructions
+@@ -24,9 +23,16 @@
+       - e.g., (syntax-quote nil) => (quote nil) => analyze => analyzeSeq => ConstantExpr/.parse => NIL_EXPR
+               vs
+               (syntax-quote nil) => nil => analyze => NIL_EXPR
++      - e.g., (syntax-quote []) => (apply vector (seq (concat))) => analyze => analyzeSeq => ....=>....
++              vs
++              (syntax-quote []) => [] => analyze => EmptyExpr([])
++      - e.g., (syntax-quote [{:keys [a]}]) => (apply vector (seq (concat [(apply hash-map ...)]))) => analyzeSeq => macroexpand-1 => ... => InvokeExpr
++              vs
++              (syntax-quote [{:keys [a]}]) => [{:keys ['a]]] => ... => VectorExpr<MapExpr>
+   - faster loading of macros
+     - fewer instructions to compile
+     - tho maybe more work compiling constants
++      - see previous point on why it might actually be faster overall
+   - smaller AOT footprint for defmacro-heavy libs
+     - e.g., clojure.jar 0.5% smaller
+   - HotSpot prefers smaller code size
+
+From 734d9903929e89414db83bb6f51533d60b939451 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Tue, 17 Jun 2025 22:04:18 +0000
+Subject: [PATCH 29/32] wip
+
+---
+ doc/optimize-syntax-quote.md | 16 ++++++++--------
+ 1 file changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/doc/optimize-syntax-quote.md b/doc/optimize-syntax-quote.md
+index b9125db48c..f92de69783 100644
+--- a/doc/optimize-syntax-quote.md
++++ b/doc/optimize-syntax-quote.md
+@@ -9,8 +9,8 @@
+ ## Benefits
+ 
+ - syntax quotes compile to fewer bytecode instructions
+-  - (premise: many defmacro's / macro helpers use syntax quote)
+   - faster macroexpand-1
++    - assumption: many defmacro's / macro helpers use syntax quote
+     - more computation done ahead-of-time
+       - e.g., [] is immediate instead of (apply vector (seq (concat)))
+     - improved code loading time
+@@ -20,15 +20,15 @@
+     - better utilize existing code paths in compiler
+       - e.g., more opportunities to use IPersistentMap/.mapUniqueKeys rather than IPersistentMap/.map
+     - avoid redundant code paths
+-      - e.g., (syntax-quote nil) => (quote nil) => analyze => analyzeSeq => ConstantExpr/.parse => NIL_EXPR
++      - e.g., (syntax-quote nil) => (quote nil) => analyze => analyzeSeq => ConstantExpr/.parse => NilExpr
+               vs
+-              (syntax-quote nil) => nil => analyze => NIL_EXPR
+-      - e.g., (syntax-quote []) => (apply vector (seq (concat))) => analyze => analyzeSeq => ....=>....
++              (syntax-quote nil) => nil => analyze => NilExpr
++      - e.g., (syntax-quote []) => (apply vector (seq (concat))) => analyze => analyzeSeq => ... => InvokeExpr
+               vs
+-              (syntax-quote []) => [] => analyze => EmptyExpr([])
+-      - e.g., (syntax-quote [{:keys [a]}]) => (apply vector (seq (concat [(apply hash-map ...)]))) => analyzeSeq => macroexpand-1 => ... => InvokeExpr
++              (syntax-quote []) => [] => analyze => EmptyExpr
++      - e.g., (syntax-quote [{:keys [a]}]) => (apply vector (seq (concat [(apply hash-map ...)]))) => analyzeSeq => macroexpand-1 => ... => InvokeExpr<VarExpr,InvokeExpr>
+               vs
+-              (syntax-quote [{:keys [a]}]) => [{:keys ['a]]] => ... => VectorExpr<MapExpr>
++              (syntax-quote [{:keys [a]}]) => [{:keys ['a]]] => analyze => ... => VectorExpr<MapExpr>
+   - faster loading of macros
+     - fewer instructions to compile
+     - tho maybe more work compiling constants
+@@ -43,4 +43,4 @@
+ - increased minimum memory requirements
+   - need to store these larger constants somewhere rather than compute them as needed
+ - it may indeed be much more effective to implement in compiler
+-- increased compilation time via elaborate static analysis
++- increased compilation time via (excessively) elaborate static analysis
+
+From 3b8a83442ec9d5b740a3ef6fd8a9139daa1ea5f8 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Tue, 17 Jun 2025 23:12:08 +0000
+Subject: [PATCH 30/32] wip
+
+---
+ doc/optimize-syntax-quote.md | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/doc/optimize-syntax-quote.md b/doc/optimize-syntax-quote.md
+index f92de69783..4e843f4ad0 100644
+--- a/doc/optimize-syntax-quote.md
++++ b/doc/optimize-syntax-quote.md
+@@ -1,5 +1,23 @@
+ # Optimizing syntax quote
+ 
++Syntax quote takes and returns code.
++
++- expanding a syntax quote takes computation time and space
++  - e.g., (LispReader/syntaxQuote []) => (list 'apply 'vector (cons 'concat (seq [])))
++- The returned code must be compiled at compilation time.
++  - analyzed, expanded, emitted
++  - e.g., (syntax-quote []) => (apply vector (seq (concat))) => (resolve 'apply) / (resolve 'seq) ... => InvokeExpr/.emit => writeClassFile
++- The code is executed at runtime.
++  - e.g., (syntax-quote []) => (eval '(apply vector (seq (concat)))) => []
++
++The output of LispReader/syntaxQuote has an influence over the cost of later stages.
++As long as returns code that evaluates to the correct result, this algorithm can be
++improved to return code that is faster to compile and run.
++
++For example when considering (syntax-quote []), [] is equivalent to (apply vector (seq (concat))) (1.12's output),
++but [] is faster to both compile and run. Returning [] from LispReader/syntaxQuote also avoids allocations
++by returning PersistentVector/EMPTY, and is cheap to compute via (zero? (count v)).
++
+ - basically constant folding
+   - Q: doesn't that belong in the compiler?
+   - A: it may be faster overall to optimize the output of syntax quote.
+
+From ae2bbf31be79755ed31ebe0a80c6332db732e900 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Wed, 18 Jun 2025 00:27:45 +0000
+Subject: [PATCH 31/32] wip
+
+---
+ doc/optimize-syntax-quote.md          | 64 ++++++++++++++++++++++-----
+ test/clojure/test_clojure/reader.cljc |  7 ++-
+ 2 files changed, 60 insertions(+), 11 deletions(-)
+
+diff --git a/doc/optimize-syntax-quote.md b/doc/optimize-syntax-quote.md
+index 4e843f4ad0..1ff7a5ea19 100644
+--- a/doc/optimize-syntax-quote.md
++++ b/doc/optimize-syntax-quote.md
+@@ -1,28 +1,72 @@
+ # Optimizing syntax quote
+ 
+-Syntax quote takes and returns code.
++Syntax quote is a reader macro, taking and returning code. It is primarily used
++to construct syntax to return from other macros. A reader macro is expanded
++once at read time, and the resulting expansion is then evaluated as code at runtime.
+ 
+ - expanding a syntax quote takes computation time and space
++  - must construct lists, symbols, vectors
+   - e.g., (LispReader/syntaxQuote []) => (list 'apply 'vector (cons 'concat (seq [])))
+ - The returned code must be compiled at compilation time.
+-  - analyzed, expanded, emitted
++  - analyzed (expanded, resolved), emitted
+   - e.g., (syntax-quote []) => (apply vector (seq (concat))) => (resolve 'apply) / (resolve 'seq) ... => InvokeExpr/.emit => writeClassFile
+-- The code is executed at runtime.
++- The compiled code is executed at runtime.
+   - e.g., (syntax-quote []) => (eval '(apply vector (seq (concat)))) => []
+ 
+ The output of LispReader/syntaxQuote has an influence over the cost of later stages.
+-As long as returns code that evaluates to the correct result, this algorithm can be
+-improved to return code that is faster to compile and run.
++Inefficiencies in LispReader/syntaxQuote's output could contribute to higher development costs over time.
++- a tools.namespace refresh usually triggers macroexpansions, which almost always evaluate syntax-quotes.
++  - a single developer could refresh hundreds of times a day triggering thousands of syntax-quote evaluations, multiplied by the number of developers
++  - end-to-end performance improvement via syntax-quote optimizations are worth investigating
+ 
+ For example when considering (syntax-quote []), [] is equivalent to (apply vector (seq (concat))) (1.12's output),
+ but [] is faster to both compile and run. Returning [] from LispReader/syntaxQuote also avoids allocations
+ by returning PersistentVector/EMPTY, and is cheap to compute via (zero? (count v)).
+ 
+-- basically constant folding
+-  - Q: doesn't that belong in the compiler?
+-  - A: it may be faster overall to optimize the output of syntax quote.
+-       e.g., there's less code to retraverse/optimize if you can directly
+-             generate more efficient code with little overhead.
++Each optimizations in LispReader/syntaxQuote also compound positively, similar to adding cases to a constant-folding compiler pass.
++
++For example, consider the constant expression:
++```clojure
++`(let [{b# :c :keys [~'a]} foo] (+ b# (identity ~'a)))
++```
++
++By combining several optimizations around constant folding lists, vectors, maps, and symbols, we can compile this to a single constant:
++
++```
++'(clojure.core/let [{b__35__auto__ :c, :keys [a]} user/foo] (clojure.core/+ b__35__auto__ (clojure.core/identity a)))
++```
++
++Clojure 1.12 produces a large amount of equivalent code in comparison.
++
++```
++user=> '`(let [{b# :c :keys [~'a]} foo] (+ b# (identity ~'a)))
++(clojure.core/seq (clojure.core/concat (clojure.core/list (quote clojure.core/let)) (clojure.core/list (clojure.core/apply clojure.core/vector (clojure.core/seq (clojure.core/concat (clojure.core/list (clojure.core/apply clojure.core/hash-map (clojure.core/seq (clojure.core/concat (clojure.core/list (quote b__175__auto__)) (clojure.core/list :c) (clojure.core/list :keys) (clojure.core/list (clojure.core/apply clojure.core/vector (clojure.core/seq (clojure.core/concat (clojure.core/list (quote a)))))))))) (clojure.core/list (quote user/foo)))))) (clojure.core/list (clojure.core/seq (clojure.core/concat (clojure.core/list (quote clojure.core/+)) (clojure.core/list (quote b__175__auto__)) (clojure.core/list (clojure.core/seq (clojure.core/concat (clojure.core/list (quote clojure.core/identity)) (clojure.core/list (quote a))))))))))
++```
++
++This highlights why the reader might overall be a better place than the compiler to optimize of the results of syntax-quote,
++even though it doesn't really belong there: if syntax-quote were left as-is, the compiler first has to analyze this code, only to then optimize it away.
++The output of syntax-quote in 1.12 grows linearly with respect to its input, but the constant factors can be larger than necessary.
++If syntax-quote can (somewhat) directly return such constants, there is less code to analyze.
++
++Some comparisons:
++
++```
++# clojure 1.12
++user=> '`[[[]]]
++(clojure.core/apply clojure.core/vector (clojure.core/seq (clojure.core/concat (clojure.core/list (clojure.core/apply clojure.core/vector (clojure.core/seq (clojure.core/concat (clojure.core/list (clojure.core/apply clojure.core/vector (clojure.core/seq (clojure.core/concat)))))))))))
++
++# optimized
++clojure.test-clojure.reader=> '`[[[]]]
++(quote [[[]]])
++
++# clojure 1.12
++user=> '`[1 2 3 4 5]
++(clojure.core/apply clojure.core/vector (clojure.core/seq (clojure.core/concat (clojure.core/list 1) (clojure.core/list 2) (clojure.core/list 3) (clojure.core/list 4) (clojure.core/list 5))))
++
++# optimized
++clojure.test-clojure.reader=> '`[1 2 3 4 5]
++(quote [1 2 3 4 5])
++```
+ 
+ ## Benefits
+ 
+diff --git a/test/clojure/test_clojure/reader.cljc b/test/clojure/test_clojure/reader.cljc
+index b473d7a8d3..70f7131827 100644
+--- a/test/clojure/test_clojure/reader.cljc
++++ b/test/clojure/test_clojure/reader.cljc
+@@ -868,4 +868,9 @@
+            '`(let [~foo 42] (+ foo foo))))
+     (is (= '(quote (nil)) '`(nil)))
+     (is (= '(quote foo) '`~'foo))
+-    (is (= '(quote (foo foo)) (do '`(~'foo ~'foo))))))
++    (is (= '(quote (foo foo)) (do '`(~'foo ~'foo))))
++    ;;TODO use gensym
++    (is (= ;;FIXME '(clojure.core/let [{b__35__auto__ :c, :keys [a]} user/foo] (clojure.core/+ b__35__auto__ (clojure.core/identity a)))
++           ;; requires hash map optimization for known keys
++           '(clojure.core/list 'clojure.core/let [(clojure.core/hash-map 'b__35__auto__ :c :keys '[a]) 'clojure.test-clojure.reader/foo] '(clojure.core/+ b__35__auto__ (clojure.core/identity a)))
++           '`(let [{~'b__35__auto__ :c :keys [~'a]} foo] (+ ~'b__35__auto__ (identity ~'a)))))))
+
+From 406632c822ba2f96dc8612a2666c359d8d6bb6c8 Mon Sep 17 00:00:00 2001
+From: Ambrose Bonnaire-Sergeant <ambrose@ambrosebs.com>
+Date: Wed, 18 Jun 2025 00:40:30 +0000
+Subject: [PATCH 32/32] comments
+
+---
+ src/jvm/clojure/lang/LispReader.java | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 8cf17d65d6..dc149e25f0 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1102,11 +1102,11 @@ else if(form instanceof IPersistentMap)
+ 				// `{} => {}
+ 				else if(seq == null)
+ 					ret = PersistentArrayMap.EMPTY;
+-				// `{k v} => {k v}
++				// `{k v} => {`k `v}
+ 				else if(seq.count() == 2)
+ 					ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
+-					//TODO if keys are all constants we can expand to {k v ...}, see `map constant keys` test
+ 				// `{k v ...} => (hash-map k v ...)
++				//TODO if keys are all constants we can expand to {k v ...}, see `map constant keys` test
+ 				else
+ 					ret = RT.cons(HASHMAP, sqExpandFlat(seq));
+ 				}
+@@ -1121,6 +1121,7 @@ else if(form instanceof IPersistentVector)
+ 					else if(hasOnlyTrailingSplice(seq))
+ 						ret = RT.cons(APPLY, RT.cons(VECTOR, sqExpandFlat(seq)));
+ 					// `[~@a b ~@c] => (vec (concat a [b] c))
++					// idea: (-> (vec a) (conj b) (into c))
+ 					else
+ 						ret = RT.list(VEC, RT.cons(CONCAT, sqExpandList(seq)));
+ 				else
+@@ -1132,7 +1133,7 @@ else if(hasOnlyTrailingSplice(seq))
+ 					// `[:a 1 'b] => '[:a 1 b]
+ 					else if(isAllQuoteLiftable(flat))
+ 						ret = RT.list(QUOTE, LazilyPersistentVector.create(sqLiftQuoted(flat)));
+-					// `[a b c] => [a b c]
++					// `[a ~b c] => [`a b `c]
+ 					else
+ 						ret = LazilyPersistentVector.create(flat);
+ 					}
+@@ -1143,6 +1144,7 @@ else if(form instanceof IPersistentSet)
+ 				// `#{~@a b ~@c} => (apply hash-set (concat a [b] c))
+ 				// optimization ideas:
+ 				// - use (clojure.core/set ..) instead of (apply hash-set ..)
++				// - use (-> (set a) (conj b) (into c))
+ 				// - remove redundant (concat a) => a
+ 				// - if has just trailing splice, use fixed args of hash-set
+ 				//   - `#{~@a ~b c} => (apply hash-set b `c a)
+@@ -1152,6 +1154,7 @@ else if(form instanceof IPersistentSet)
+ 				else if(seq == null)
+ 					ret = PersistentHashSet.EMPTY;
+ 				// `#{a ~b c} => (hash-set `a b `c)
++				// TODO if distinct, compile to set literal: `#{a ~b c} => '#{a b c}
+ 				else
+ 					ret = RT.cons(HASHSET, sqExpandFlat(seq));
+ 				}

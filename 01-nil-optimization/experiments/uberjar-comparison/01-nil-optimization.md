@@ -32,6 +32,10 @@ This experiment uses reproducible builds methodology with efficient comparison:
 - Separates Java source changes from Clojure compilation changes
 - Includes synthetic benchmark for isolated testing
 
+### Reference Implementation
+
+This experiment takes inspiration from https://github.com/frenchy64/clojure/pull/41[PR #41], which contains the full optimization that we are breaking down into smaller pieces. The complete patch is available at the root of this repository as `optimize-syntax-quote-full.patch`.
+
 ## Running the Experiment
 
 ### Prerequisites
