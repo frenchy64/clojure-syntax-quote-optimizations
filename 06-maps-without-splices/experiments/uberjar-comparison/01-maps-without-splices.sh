@@ -11,8 +11,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SUBPROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-REPO_ROOT="$(cd "$SUBPROJECT_ROOT/..
-" && pwd)"
+REPO_ROOT="$(cd "$SUBPROJECT_ROOT/.." && pwd)"
 SHARED_SCRIPT="$REPO_ROOT/shared/compare-uberjar.sh"
 BUILD_SCRIPT="$SUBPROJECT_ROOT/build-optimized-uberjar.sh"
 RESULTS_DIR="$SCRIPT_DIR/results/01-maps-without-splices-optimization"
