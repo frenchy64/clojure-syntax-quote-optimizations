@@ -11,7 +11,7 @@ diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispRea
 index 8d7079cf..8a590e96 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
-@@ -1093,7 +1093,20 @@ public static class SyntaxQuoteReader extends AFn{
+@@ -1093,7 +1093,19 @@ public static class SyntaxQuoteReader extends AFn{
  			else if(form instanceof IPersistentMap)
  				{
  				IPersistentVector keyvals = flattenMap(form);
@@ -29,7 +29,6 @@ index 8d7079cf..8a590e96 100644
 +				// `{k v ...} => (hash-map k v ...)
 +				else
 +					ret = RT.cons(HASHMAP, sqExpandFlat(seq));
-+				}
  				}
  			else if(form instanceof IPersistentVector)
  				{

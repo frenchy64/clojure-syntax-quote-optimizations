@@ -35,7 +35,7 @@ For maps without top-level splices, we can avoid the overhead of `concat`, `seq`
 
 == Code Changes
 
-The patch modifies the `IPersistentMap` case in `syntaxQuote()` method of `LispReader.java`:
+The patch modifies the `IPersistentMap` case in `syntaxQuote()` method of `LispReader.java` (40 lines changed, 39 insertions, 1 deletion):
 
 ```java
 ISeq seq = keyvals.seq();
