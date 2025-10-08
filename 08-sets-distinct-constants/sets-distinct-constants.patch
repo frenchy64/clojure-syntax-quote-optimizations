@@ -1,76 +1,71 @@
-From 587d1aaf8a429afe1ccbbc6d876d170a79c34b38 Mon Sep 17 00:00:00 2001
-From: GitHub Copilot <copilot@github.com>
-Date: Wed, 8 Oct 2025 14:15:56 +0000
-Subject: [PATCH] Optimize syntax-quote for sets with distinct constants (fixed
- constant detection)
+From 911d4b534f41f88bc5f8151b529f4022030f63fe Mon Sep 17 00:00:00 2001
+From: Test User <test@example.com>
+Date: Wed, 8 Oct 2025 14:38:25 +0000
+Subject: [PATCH] Optimize sets with distinct constants
 
 ---
- src/jvm/clojure/lang/LispReader.java | 53 +++++++++++++++++++++++++++-
- 1 file changed, 52 insertions(+), 1 deletion(-)
+ src/jvm/clojure/lang/LispReader.java | 51 +++++++++++++++++++++++++++-
+ 1 file changed, 50 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079c..fd335cb 100644
+index 8d7079cf..b1373e5d 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
-@@ -1101,7 +1101,58 @@ public static class SyntaxQuoteReader extends AFn{
+@@ -1101,7 +1101,56 @@ public static class SyntaxQuoteReader extends AFn{
  				}
  			else if(form instanceof IPersistentSet)
  				{
 -				ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentSet) form).seq()))));
 +				ISeq seq = ((IPersistentSet) form).seq();
-+				// Check if all elements are distinct constants
-+				boolean hasDistinctConstants = false;
-+				if(seq != null)
++				// Optimize sets with distinct constant elements to use set literals
++				if(seq != null && seq.count() > 0)
 +					{
-+					hasDistinctConstants = true;
-+					PersistentVector elements = PersistentVector.EMPTY;
-+					// Check each element
-+					for(ISeq s = seq; s != null; s = s.next())
++					boolean hasDistinctConstantElements = true;
++					IPersistentSet seenElements = PersistentHashSet.EMPTY;
++					
++					// Check if all elements are self-evaluating constants
++					// and that no two elements are equivalent
++					ISeq s = seq;
++					while(s != null)
 +						{
 +						Object element = s.first();
-+						// Element must be a self-evaluating constant (keyword, number, string, boolean, nil, char)
++						// Test for self-evaluating constants
 +						if(!(element instanceof Keyword) && 
-+						   !(element == null) &&
-+						   !(element instanceof Number) &&
-+						   !(element instanceof String) &&
-+						   !(element instanceof Boolean) &&
++						   !(element == null) && 
++						   !(element instanceof Number) && 
++						   !(element instanceof String) && 
++						   !(element instanceof Boolean) && 
 +						   !(element instanceof Character))
 +							{
-+							hasDistinctConstants = false;
++							hasDistinctConstantElements = false;
 +							break;
 +							}
-+						// Check if this element is distinct from previous elements
-+						for(ISeq e = elements.seq(); e != null; e = e.next())
++						
++						// Check for duplicate elements
++						if(seenElements.contains(element))
 +							{
-+							if(Util.equiv(e.first(), element))
-+								{
-+								hasDistinctConstants = false;
-+								break;
-+								}
-+							}
-+						if(!hasDistinctConstants)
++							hasDistinctConstantElements = false;
 +							break;
-+						elements = elements.cons(element);
-+						}
-+					}
-+				// `#{:a :b :c} => #{:a :b :c} (if all elements are distinct constants)
-+				if(hasDistinctConstants && seq != null)
-+					{
-+					// Expand each element through syntax-quote
-+					PersistentVector expanded = PersistentVector.EMPTY;
-+					for(ISeq s = seq; s != null; s = s.next())
-+						{
-+						Object item = s.first();
-+						if(isUnquote(item))
-+							expanded = expanded.cons(RT.second(item));
++							}
 +						else
-+							expanded = expanded.cons(syntaxQuote(item));
++							{
++							seenElements = (IPersistentSet) seenElements.cons(element);
++							}
++						
++						s = s.next();
 +						}
-+					ret = PersistentHashSet.create(RT.toArray(expanded));
++					
++					if(hasDistinctConstantElements)
++						{
++						// All elements are distinct constants, expand to set literal
++						ISeq expanded = sqExpandList(seq);
++						ret = PersistentHashSet.create(RT.toArray(expanded));
++						}
++					else
++						ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
 +					}
 +				else
 +					ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
-+				}
  				}
  			else if(form instanceof ISeq || form instanceof IPersistentList)
  				{
