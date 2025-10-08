@@ -1,0 +1,68 @@
+From 98c45c6c675588862deae302ce49fe6ecda0d3d2 Mon Sep 17 00:00:00 2001
+From: GitHub Copilot <copilot@github.com>
+Date: Wed, 8 Oct 2025 06:15:00 +0000
+Subject: [PATCH] Optimize syntax-quote for singleton sets
+
+This patch optimizes sets with exactly one element to use set literals
+instead of (apply hash-set (seq (concat ...))). Singleton sets are simple
+enough that they can be directly represented as literals.
+---
+ src/jvm/clojure/lang/LispReader.java | 37 ++++++++++++++++++++++++++++++++++--
+ 1 file changed, 35 insertions(+), 2 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 8d7079cf..9af2c1d5 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1098,7 +1098,16 @@ public static class SyntaxQuoteReader extends AFn{
+ 			else if(form instanceof IPersistentSet)
+ 				{
+-				ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentSet) form).seq()))));
++				ISeq seq = ((IPersistentSet) form).seq();
++				// `#{~@a b ~@c} => (apply hash-set (concat a [b] c))
++				if(hasSplice(seq))
++					ret = RT.list(APPLY, HASHSET, RT.cons(CONCAT, sqExpandList(seq)));
++				// `#{} => #{}
++				else if(seq == null)
++					ret = PersistentHashSet.EMPTY;
++				// `#{a} => #{`a}
++				else if(seq.count() == 1)
++					ret = PersistentHashSet.create(RT.toArray(sqExpandFlat(seq)));
++				else
++					ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
+ 				}
+ 			else if(form instanceof ISeq || form instanceof IPersistentList)
+ 				{
+@@ -1147,6 +1156,30 @@ public static class SyntaxQuoteReader extends AFn{
+ 		return ret.seq();
+ 	}
+ 
++	// returns true iff seq contains ~@
++	private static boolean hasSplice(ISeq seq) {
++		for(; seq != null; seq = seq.next())
++			{
++			if(isUnquoteSplicing(seq.first()))
++				return true;
++			}
++		return false;
++	}
++
++	// Flatten seq treating ~@ as ~, for use with list* etc
++	private static ISeq sqExpandFlat(ISeq seq) {
++		PersistentVector ret = PersistentVector.EMPTY;
++		for(; seq != null; seq = seq.next())
++			{
++			Object item = seq.first();
++			if(isUnquote(item) || isUnquoteSplicing(item))
++				ret = ret.cons(RT.second(item));
++			else
++				ret = ret.cons(syntaxQuote(item));
++			}
++		return ret.seq();
++	}
++
+ 	private static IPersistentVector flattenMap(Object form){
+ 		IPersistentVector keyvals = PersistentVector.EMPTY;
+ 		for(ISeq s = RT.seq(form); s != null; s = s.next())
+-- 
+2.51.0

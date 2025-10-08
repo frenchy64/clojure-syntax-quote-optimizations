@@ -28,6 +28,18 @@ jobs:
             title: "Singleton Maps Optimization"
             dir: "04-singleton-maps"
             script: "01-singleton-maps.sh"
+          - name: maps-without-splices
+            title: "Maps Without Splices Optimization"
+            dir: "06-maps-without-splices"
+            script: "01-maps-without-splices.sh"
+          - name: singleton-sets
+            title: "Singleton Sets Optimization"
+            dir: "07-singleton-sets"
+            script: "01-singleton-sets.sh"
+          - name: sets-without-splices
+            title: "Sets Without Splices Optimization"
+            dir: "09-sets-without-splices"
+            script: "01-sets-without-splices.sh"
     
     steps:
     - name: Checkout repository

@@ -1,0 +1,71 @@
+From 98c45c6c675588862deae302ce49fe6ecda0d3d2 Mon Sep 17 00:00:00 2001
+From: GitHub Copilot <copilot@github.com>
+Date: Wed, 8 Oct 2025 06:00:00 +0000
+Subject: [PATCH] Optimize syntax-quote for maps without splices
+
+This patch optimizes all maps without top-level splices to avoid the overhead
+of (apply hash-map (seq (concat ...))). For maps without splices, we can use
+direct map literals (for empty and singleton) or (hash-map k v ...) for
+multi-entry maps. This is more efficient and generates less bytecode.
+---
+ src/jvm/clojure/lang/LispReader.java | 37 ++++++++++++++++++++++++++++++++++--
+ 1 file changed, 35 insertions(+), 2 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 8d7079cf..e7a8a7b4 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1093,7 +1093,16 @@ public static class SyntaxQuoteReader extends AFn{
+ 			else if(form instanceof IPersistentMap)
+ 				{
+ 				IPersistentVector keyvals = flattenMap(form);
+-				ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
++				ISeq seq = keyvals.seq();
++				// `{~@k ~@v} => (apply hash-map (concat k v))
++				if(hasSplice(seq))
++					ret = RT.list(APPLY, HASHMAP, RT.cons(CONCAT, sqExpandList(seq)));
++				// `{} => {}
++				else if(seq == null)
++					ret = PersistentArrayMap.EMPTY;
++				// `{k v} => {`k `v}
++				else if(seq.count() == 2)
++					ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
++				// `{k v ...} => (hash-map k v ...)
++				else
++					ret = RT.cons(HASHMAP, sqExpandFlat(seq));
+ 				}
+ 			else if(form instanceof IPersistentVector)
+ 				{
+@@ -1147,6 +1156,30 @@ public static class SyntaxQuoteReader extends AFn{
+ 		return ret.seq();
+ 	}
+ 
++	// returns true iff seq contains ~@
++	private static boolean hasSplice(ISeq seq) {
++		for(; seq != null; seq = seq.next())
++			{
++			if(isUnquoteSplicing(seq.first()))
++				return true;
++			}
++		return false;
++	}
++
++	// Flatten seq treating ~@ as ~, for use with list* etc
++	private static ISeq sqExpandFlat(ISeq seq) {
++		PersistentVector ret = PersistentVector.EMPTY;
++		for(; seq != null; seq = seq.next())
++			{
++			Object item = seq.first();
++			if(isUnquote(item) || isUnquoteSplicing(item))
++				ret = ret.cons(RT.second(item));
++			else
++				ret = ret.cons(syntaxQuote(item));
++			}
++		return ret.seq();
++	}
++
+ 	private static IPersistentVector flattenMap(Object form){
+ 		IPersistentVector keyvals = PersistentVector.EMPTY;
+ 		for(ISeq s = RT.seq(form); s != null; s = s.next())
+-- 
+2.51.0
