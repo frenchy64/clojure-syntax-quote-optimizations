@@ -46,19 +46,19 @@ clojure-syntax-quote-optimizations/
 ├── shared/                        # Shared utilities and scripts
 │   ├── build-optimized-uberjar.sh # Generic build script for optimizations
 │   └── compare-uberjar.sh         # Generic uberjar comparison script
-├── nil-optimization/              # Subproject: nil optimization
+├── 01-nil-optimization/           # Subproject: nil optimization
 │   ├── nil-optimization.patch     # Git patch for the optimization
 │   ├── build-optimized-uberjar.sh # Wrapper for shared build script
 │   └── experiments/               # Experiments for this optimization
 │       ├── uberjar-comparison/    # Overall JAR size impact
 │       └── if-not-macro/          # Specific macro analysis
-├── boolean-optimization/          # Subproject: boolean optimization
+├── 02-boolean-optimization/       # Subproject: boolean optimization
 │   ├── boolean-optimization.patch # Git patch for the optimization
 │   ├── build-optimized-uberjar.sh # Wrapper for shared build script
 │   └── experiments/               # Experiments for this optimization
 │       ├── uberjar-comparison/    # Overall JAR size impact
 │       └── when-true-macro/       # Synthetic macro analysis
-├── empty-collection-optimization/ # Subproject: empty collection optimization
+├── 03-empty-collection-optimization/ # Subproject: empty collection optimization
 │   ├── empty-collection-optimization.patch # Git patch for the optimization
 │   ├── build-optimized-uberjar.sh # Wrapper for shared build script
 │   └── experiments/               # Experiments for this optimization
@@ -76,6 +76,7 @@ Each optimization follows a consistent workflow:
 3. **Measure impact**: Run experiments at different levels (whole JAR, specific macros, etc.)
 4. **Document results**: Provide analysis documents and verification scripts
 5. **Verify checksums**: All artifacts are verified with SHA256 checksums for reproducibility
+6. **Automate testing**: Add all experiments to GitHub Actions CI for automatic testing on every push
 
 == Optimization Pipeline
 
@@ -108,19 +109,23 @@ Each optimization builds understanding for the next, starting with the simplest 
 
 When adding a new optimization:
 
-1. Create a new subdirectory at the top level (e.g., `boolean-optimization/`)
+1. Create a new subdirectory at the top level with sequential numbering (e.g., `04-next-optimization/`)
 2. Include a git patch file that applies to a specific Clojure commit
 3. Create a `build-optimized-uberjar.sh` script for building the optimized version
 4. Add experiments in an `experiments/` subdirectory
 5. Document your findings in AsciiDoc format
+6. Add the optimization to the GitHub Actions workflow matrix in `.github/workflows/optimization-experiments.yml` for automated CI testing
+7. Update the main `README.adoc` to link to the new optimization
+
+The goal is to enable asking "go onto the next optimization" and have all infrastructure automatically set up following these established patterns.
 
 == See Also
 
-- link:nil-optimization/README.adoc[Nil Optimization Subproject]
-- link:boolean-optimization/README.adoc[Boolean Optimization Subproject]
-- link:empty-collection-optimization/README.adoc[Empty Collection Optimization Subproject]
-- link:nil-optimization/experiments/uberjar-comparison/01-nil-optimization.md[Nil Uberjar Comparison]
-- link:nil-optimization/experiments/if-not-macro/IF_NOT_NIL_OPTIMIZATION_ANALYSIS.adoc[if-not Macro Analysis]
-- link:boolean-optimization/experiments/when-true-macro/WHEN_TRUE_BOOLEAN_OPTIMIZATION_ANALYSIS.adoc[when-true Macro Analysis]
-- link:empty-collection-optimization/experiments/empty-vector-macro/EMPTY_COLLECTION_OPTIMIZATION_ANALYSIS.adoc[Empty Collection Optimization Analysis]
+- link:01-nil-optimization/README.adoc[Nil Optimization Subproject]
+- link:02-boolean-optimization/README.adoc[Boolean Optimization Subproject]
+- link:03-empty-collection-optimization/README.adoc[Empty Collection Optimization Subproject]
+- link:01-nil-optimization/experiments/uberjar-comparison/01-nil-optimization.md[Nil Uberjar Comparison]
+- link:01-nil-optimization/experiments/if-not-macro/IF_NOT_NIL_OPTIMIZATION_ANALYSIS.adoc[if-not Macro Analysis]
+- link:02-boolean-optimization/experiments/when-true-macro/WHEN_TRUE_BOOLEAN_OPTIMIZATION_ANALYSIS.adoc[when-true Macro Analysis]
+- link:03-empty-collection-optimization/experiments/empty-vector-macro/EMPTY_COLLECTION_OPTIMIZATION_ANALYSIS.adoc[Empty Collection Optimization Analysis]
 - link:optimize-syntax-quote.md[Technical Motivation Document]

@@ -101,6 +101,6 @@ All optimizations are semantically transparent and provide pure performance impr
 
 == See Also
 
-- link:../nil-optimization/README.adoc[Nil Optimization Subproject]
-- link:../boolean-optimization/README.adoc[Boolean Optimization Subproject]
+- link:../01-nil-optimization/README.adoc[Nil Optimization Subproject]
+- link:../02-boolean-optimization/README.adoc[Boolean Optimization Subproject]
 - link:../optimize-syntax-quote.md[Technical Motivation Document]

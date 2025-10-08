@@ -112,5 +112,5 @@ Both optimizations are semantically transparent and provide pure performance imp
 == See Also
 
 - link:experiments/when-true-macro/WHEN_TRUE_BOOLEAN_OPTIMIZATION_ANALYSIS.adoc[when-true Macro Analysis]
-- link:../nil-optimization/README.adoc[Nil Optimization Subproject]
+- link:../01-nil-optimization/README.adoc[Nil Optimization Subproject]
 - link:../optimize-syntax-quote.md[Technical Motivation Document]

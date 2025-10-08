@@ -14,15 +14,15 @@ jobs:
         optimization:
           - name: nil
             title: "Nil Optimization"
-            dir: "nil-optimization"
+            dir: "01-nil-optimization"
             script: "01-nil-optimization.sh"
           - name: boolean
             title: "Boolean Optimization"
-            dir: "boolean-optimization"
+            dir: "02-boolean-optimization"
             script: "01-boolean-optimization.sh"
           - name: empty-collection
             title: "Empty Collection Optimization"
-            dir: "empty-collection-optimization"
+            dir: "03-empty-collection-optimization"
             script: "01-empty-collection-optimization.sh"
     
     steps:

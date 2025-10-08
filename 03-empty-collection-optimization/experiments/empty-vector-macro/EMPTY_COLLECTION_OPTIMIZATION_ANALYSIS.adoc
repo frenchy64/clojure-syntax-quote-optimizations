@@ -223,5 +223,5 @@ This optimization applies to any macro that uses syntax-quoted empty collections
 == See Also
 
 - link:../../README.adoc[Empty Collection Optimization Subproject]
-- link:../../../nil-optimization/experiments/if-not-macro/IF_NOT_NIL_OPTIMIZATION_ANALYSIS.adoc[Nil Optimization Analysis]
-- link:../../../boolean-optimization/experiments/when-true-macro/WHEN_TRUE_BOOLEAN_OPTIMIZATION_ANALYSIS.adoc[Boolean Optimization Analysis]
+- link:../../../01-nil-optimization/experiments/if-not-macro/IF_NOT_NIL_OPTIMIZATION_ANALYSIS.adoc[Nil Optimization Analysis]
+- link:../../../02-boolean-optimization/experiments/when-true-macro/WHEN_TRUE_BOOLEAN_OPTIMIZATION_ANALYSIS.adoc[Boolean Optimization Analysis]

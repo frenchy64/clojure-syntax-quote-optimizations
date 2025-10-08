@@ -174,5 +174,5 @@ And establishes the baseline for:
 ## See Also
 
 - link:../../README.adoc[Empty Collection Optimization Subproject]
-- link:../../../nil-optimization/experiments/uberjar-comparison/01-nil-optimization.md[Nil Optimization Experiment]
-- link:../../../boolean-optimization/README.adoc[Boolean Optimization Subproject]
+- link:../../../01-nil-optimization/experiments/uberjar-comparison/01-nil-optimization.md[Nil Optimization Experiment]
+- link:../../../02-boolean-optimization/README.adoc[Boolean Optimization Subproject]
