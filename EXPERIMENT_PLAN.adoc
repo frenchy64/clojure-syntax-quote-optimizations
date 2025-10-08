@@ -15,7 +15,7 @@ This document outlines the planned experiments for systematically testing syntax
 5. ✅ **Maps with Distinct Constant Keys** (`05-maps-distinct-constant-keys`) - Use map literals when keys are distinct constants
 6. ✅ **Maps without Splices** (`06-maps-without-splices`) - Use `(hash-map k v ...)` instead of concat/apply
 7. ✅ **Singleton Sets** (`07-singleton-sets`) - Optimize 1-element sets to use set literals
-8. ⏭️  **Sets with Distinct Constants** - Marked as TODO in full patch, not yet implemented  
+8. ✅ **Sets with Distinct Constants** (`08-sets-distinct-constants`) - Use set literals when elements are distinct constants
 9. ✅ **Sets without Splices** (`09-sets-without-splices`) - Use `(hash-set e ...)` instead of concat/apply
 
 == Planned Experiments: Maps (IPersistentMap)
@@ -155,9 +155,9 @@ else
 **Examples:**
 - `` `#{:a} `` => `#{:a}` instead of `(apply hash-set (seq (concat (list :a))))`
 
-=== 08. Sets with Distinct Constants ⏭️ DEFERRED
+=== 08. Sets with Distinct Constants ✅ COMPLETED
 
-**Status:** Conceptual experiment. May be added in future work if needed.
+**Status:** Implementation complete, patch verified, experiment scripts ready.
 
 **Code Section:**
 ```java

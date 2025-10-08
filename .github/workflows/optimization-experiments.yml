@@ -40,6 +40,10 @@ jobs:
             title: "Singleton Sets Optimization"
             dir: "07-singleton-sets"
             script: "01-singleton-sets.sh"
+          - name: sets-distinct-constants
+            title: "Sets with Distinct Constants Optimization"
+            dir: "08-sets-distinct-constants"
+            script: "01-sets-distinct-constants.sh"
           - name: sets-without-splices
             title: "Sets Without Splices Optimization"
             dir: "09-sets-without-splices"

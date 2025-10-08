@@ -99,7 +99,7 @@ The planned sequence of optimizations, organized by LispReader.java sections (se
 
 **Sets (IPersistentSet):**
 7. ✓ **Singleton sets** - Optimize 1-element sets
-8. ⏭ **Sets with distinct constants** - Deferred (conceptual)
+8. ✓ **Sets with distinct constants** - Use set literals when elements are provably distinct
 9. ✓ **Sets without splices** - Use `(hash-set ...)` instead of concat/apply
 
 **Lists & Vectors:**
