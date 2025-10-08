@@ -6,8 +6,7 @@ set -euo pipefail
 # Usage: ./build-optimized-uberjar.sh [output_dir]
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/..
-" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SHARED_SCRIPT="$REPO_ROOT/shared/build-optimized-uberjar.sh"
 PATCH_FILE="$SCRIPT_DIR/maps-without-splices.patch"
 OUTPUT_DIR="${1:-$SCRIPT_DIR/build}"
