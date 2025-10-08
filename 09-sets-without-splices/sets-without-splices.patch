@@ -1,28 +1,35 @@
-From 235e24506fc8ce6152587035865bf2cd45d56318 Mon Sep 17 00:00:00 2001
+From 5d263bc83316e49e0e0c2a4d4cf5e16a08413714 Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
-Date: Wed, 8 Oct 2025 07:01:17 +0000
-Subject: [PATCH] Optimize syntax-quote for sets without splices (minimal)
+Date: Wed, 8 Oct 2025 07:11:16 +0000
+Subject: [PATCH] Optimize syntax-quote for sets without splices (corrected)
 
 ---
- src/jvm/clojure/lang/LispReader.java | 12 +++++++++++-
- 1 file changed, 11 insertions(+), 1 deletion(-)
+ src/jvm/clojure/lang/LispReader.java | 19 ++++++++++++++++++-
+ 1 file changed, 18 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079c..48aab27 100644
+index 8d7079c..b258503 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
-@@ -1101,7 +1101,17 @@ public static class SyntaxQuoteReader extends AFn{
+@@ -1101,7 +1101,24 @@ public static class SyntaxQuoteReader extends AFn{
  				}
  			else if(form instanceof IPersistentSet)
  				{
 -				ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentSet) form).seq()))));
 +				ISeq seq = ((IPersistentSet) form).seq();
-+				// `#{} => #{}
-+				if(seq == null)
-+					ret = PersistentHashSet.EMPTY;
-+				// `#{a} => #{`a}
-+				else if(seq.count() == 1)
-+					ret = PersistentHashSet.create(RT.toArray(syntaxQuote(seq.first())));
++				// Check if there are any splices
++				boolean hasSplice = false;
++				for(ISeq s = seq; s != null; s = s.next())
++					{
++					if(isUnquoteSplicing(s.first()))
++						{
++						hasSplice = true;
++						break;
++						}
++					}
++				// `#{~@a b ~@c} => (apply hash-set (seq (concat a [b] c)))
++				if(hasSplice)
++					ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
 +				// `#{a b c} => (hash-set `a `b `c)
 +				else
 +					ret = RT.cons(HASHSET, sqExpandList(seq));

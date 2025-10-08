@@ -4,12 +4,12 @@
 
 == Overview
 
-This subproject contains the analysis and verification of optimizing syntax-quoted sets that don't have top-level splices (`~@`). Instead of using the verbose `(apply hash-set (seq (concat ...)))` construction, we use more direct forms:
-- Empty sets: `#{}`
-- Singleton sets: `#{:a}`  
-- Multi-element sets: `(hash-set :a :b ...)`
+This subproject contains the analysis and verification of optimizing syntax-quoted sets that don't have top-level splices (`~@`). The optimization detects whether a set contains splices and applies different expansion strategies:
 
-This optimization is part of https://clojure.atlassian.net/browse/CLJ-2908[CLJ-2908: Optimize syntax-quote] and follows the same pattern as the maps without splices optimization.
+- **Without splices**: Use direct `(hash-set ...)` construction
+- **With splices**: Preserve the original `(apply hash-set (seq (concat ...)))` form
+
+This optimization is part of https://clojure.atlassian.net/browse/CLJ-2908[CLJ-2908: Optimize syntax-quote].
 
 == The Optimization
 
@@ -18,12 +18,13 @@ For sets without top-level splices, we can avoid the overhead of `concat`, `seq`
 **Before:**
 - `` `#{:a :b :c} `` => `(apply hash-set (seq (concat (list :a) (list :b) (list :c))))`
 
-**After:**
-- `` `#{} `` => `#{}`
-- `` `#{:a} `` => `#{:a}`
+**After (no splices):**
 - `` `#{:a :b :c} `` => `(hash-set :a :b :c)`
 
-**Why this is safe:** When there are no splices, we know exactly what elements will be in the set at compile time. We can therefore use simpler construction methods that avoid runtime sequence operations.
+**After (with splices - preserved):**
+- `` `#{~@xs :a} `` => `(apply hash-set (seq (concat xs (list :a))))`
+
+**Why this is safe:** The patch checks for the presence of splices. When there are no splices, we know exactly what elements will be in the set at compile time, allowing direct construction. When splices are present, we preserve the original behavior to ensure correct expansion.
 
 **Constraint:** This optimization only applies when there are no top-level splices (`~@`) in the set.
 
@@ -39,18 +40,27 @@ The patch modifies the `IPersistentSet` case in `syntaxQuote()` method of `LispR
 
 ```java
 ISeq seq = ((IPersistentSet) form).seq();
-// `#{} => #{}
-if(seq == null)
-    ret = PersistentHashSet.EMPTY;
-// `#{a} => #{`a}
-else if(seq.count() == 1)
-    ret = PersistentHashSet.create(RT.toArray(syntaxQuote(seq.first())));
+// Check if there are any splices
+boolean hasSplice = false;
+for(ISeq s = seq; s != null; s = s.next())
+    {
+    if(isUnquoteSplicing(s.first()))
+        {
+        hasSplice = true;
+        break;
+        }
+    }
+// `#{~@a b ~@c} => (apply hash-set (seq (concat a [b] c)))
+if(hasSplice)
+    ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
 // `#{a b c} => (hash-set `a `b `c)
 else
     ret = RT.cons(HASHSET, sqExpandList(seq));
 ```
 
-This is a minimal patch that optimizes all sets without splices. It uses the existing `syntaxQuote` and `sqExpandList` functions from the codebase, requiring no additional helper functions.
+This patch checks if any element in the set is a splice (`~@`). If splices are present, it uses the original verbose form to ensure correct behavior. If no splices are present, it uses the optimized `(hash-set ...)` form.
+
+This uses only existing functions from the codebase (`isUnquoteSplicing` and `sqExpandList`).
 
 == Building the Optimized Uberjar
 
