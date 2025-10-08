@@ -1,0 +1,77 @@
+From b60e7285dbd6328c9c5b530c4ece46faf305e3d9 Mon Sep 17 00:00:00 2001
+From: GitHub Copilot <copilot@github.com>
+Date: Wed, 8 Oct 2025 07:41:40 +0000
+Subject: [PATCH] Optimize syntax-quote for maps with distinct constant keys
+
+---
+ src/jvm/clojure/lang/LispReader.java | 54 +++++++++++++++++++++++++++-
+ 1 file changed, 53 insertions(+), 1 deletion(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 8d7079c..2d6f861 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1093,7 +1093,59 @@ public static class SyntaxQuoteReader extends AFn{
+ 			else if(form instanceof IPersistentMap)
+ 				{
+ 				IPersistentVector keyvals = flattenMap(form);
+-				ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
++				ISeq seq = keyvals.seq();
++				// Check if all keys are distinct constants
++				boolean hasDistinctConstantKeys = false;
++				if(seq != null && (seq.count() % 2) == 0 && seq.count() > 0)
++					{
++					hasDistinctConstantKeys = true;
++					PersistentVector keys = PersistentVector.EMPTY;
++					// Check each key (even-indexed position: 0, 2, 4, ...)
++					int idx = 0;
++					for(ISeq s = seq; s != null; s = s.next(), idx++)
++						{
++						if(idx % 2 == 0) // This is a key position
++							{
++							Object key = s.first();
++							// Key must not be unquote or unquote-splicing (must be constant)
++							if(isUnquote(key) || isUnquoteSplicing(key))
++								{
++								hasDistinctConstantKeys = false;
++								break;
++								}
++							// Check if this key is distinct from previous keys
++							for(ISeq k = keys.seq(); k != null; k = k.next())
++								{
++								if(Util.equiv(k.first(), key))
++									{
++									hasDistinctConstantKeys = false;
++									break;
++									}
++								}
++							if(!hasDistinctConstantKeys)
++								break;
++							keys = keys.cons(key);
++							}
++						}
++					}
++				// `{:a 1 :b 2} => {:a 1 :b 2} (if keys are distinct constants)
++				if(hasDistinctConstantKeys)
++					{
++					// Expand each element through syntax-quote
++					PersistentVector expanded = PersistentVector.EMPTY;
++					for(ISeq s = seq; s != null; s = s.next())
++						{
++						Object item = s.first();
++						if(isUnquote(item))
++							expanded = expanded.cons(RT.second(item));
++						else
++							expanded = expanded.cons(syntaxQuote(item));
++						}
++					ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(expanded));
++					}
++				else
++					ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
++				}
+ 				}
+ 			else if(form instanceof IPersistentVector)
+ 				{
+-- 
+2.51.0
+

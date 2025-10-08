@@ -1,0 +1,154 @@
+= Maps with Distinct Constant Keys Optimization for Syntax-Quote
+:toc:
+:toclevels: 3
+
+== Overview
+
+This subproject contains the analysis and verification of optimizing syntax-quoted maps where all keys are compile-time constants and provably distinct. Instead of using `(apply hash-map (seq (concat ...)))`, we can use map literals directly when we can verify at compile-time that all keys are constants and none are duplicated.
+
+This optimization is part of https://clojure.atlassian.net/browse/CLJ-2908[CLJ-2908: Optimize syntax-quote].
+
+== The Optimization
+
+For maps where all keys are atomic constants (keywords, strings, numbers, booleans, nil, etc.) and no two keys are equivalent, we can use map literals:
+
+**Before:**
+- `` `{:a ~x :b ~y} `` => `(apply hash-map (seq (concat (list :a) (list x) (list :b) (list y))))`
+
+**After (with distinct constant keys):**
+- `` `{:a ~x :b ~y} `` => `{:a x :b y}`
+
+**After (with non-constant or duplicate keys - preserved):**
+- `` `{~k ~v} `` => `(apply hash-map (seq (concat (list k) (list v))))`
+- `` `{:a 1 :a 2} `` => `(apply hash-map (seq (concat ...)))` (duplicate key)
+
+**Why this is safe:** The patch checks that:
+1. All keys (even-indexed elements) are constants (not unquoted expressions)
+2. No two keys are equivalent according to `clojure.lang.Util/equiv`
+
+When both conditions are met, we can safely use a map literal, which is more efficient.
+
+**Constraint:** This optimization requires all keys to be compile-time constants and distinct.
+
+**Patch file:** `maps-distinct-constant-keys.patch`
+
+**Target commit:** See `CLOJURE_VERSION` file in repository root (Clojure 1.12.3 release)
+
+**Reference:** This optimization implements the TODO noted in the comprehensive work at https://github.com/frenchy64/clojure/pull/41[PR #41].
+
+== Code Changes
+
+The patch modifies the `IPersistentMap` case in `syntaxQuote()` method of `LispReader.java`:
+
+```java
+ISeq seq = keyvals.seq();
+// Check if all keys are distinct constants
+boolean hasDistinctConstantKeys = false;
+if(seq != null && (seq.count() % 2) == 0 && seq.count() > 0)
+    {
+    hasDistinctConstantKeys = true;
+    PersistentVector keys = PersistentVector.EMPTY;
+    // Check each key (even-indexed position: 0, 2, 4, ...)
+    int idx = 0;
+    for(ISeq s = seq; s != null; s = s.next(), idx++)
+        {
+        if(idx % 2 == 0) // This is a key position
+            {
+            Object key = s.first();
+            // Key must not be unquote or unquote-splicing (must be constant)
+            if(isUnquote(key) || isUnquoteSplicing(key))
+                {
+                hasDistinctConstantKeys = false;
+                break;
+                }
+            // Check if this key is distinct from previous keys
+            for(ISeq k = keys.seq(); k != null; k = k.next())
+                {
+                if(Util.equiv(k.first(), key))
+                    {
+                    hasDistinctConstantKeys = false;
+                    break;
+                    }
+                }
+            if(!hasDistinctConstantKeys)
+                break;
+            keys = keys.cons(key);
+            }
+        }
+    }
+// `{:a 1 :b 2} => {:a 1 :b 2} (if keys are distinct constants)
+if(hasDistinctConstantKeys)
+    {
+    // Expand each element through syntax-quote
+    PersistentVector expanded = PersistentVector.EMPTY;
+    for(ISeq s = seq; s != null; s = s.next())
+        {
+        Object item = s.first();
+        if(isUnquote(item))
+            expanded = expanded.cons(RT.second(item));
+        else
+            expanded = expanded.cons(syntaxQuote(item));
+        }
+    ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(expanded));
+    }
+else
+    ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
+```
+
+This uses only existing functions from the codebase (`isUnquote`, `isUnquoteSplicing`, `Util.equiv`, `syntaxQuote`, `sqExpandList`).
+
+== Building the Optimized Uberjar
+
+Use the shared build script:
+
+```bash
+./build-optimized-uberjar.sh [output_dir]
+```
+
+This script:
+1. Clones the official Clojure repository at the target commit
+2. Applies the maps-distinct-constant-keys.patch
+3. Builds the uberjar with Maven
+4. Strips nondeterministic data and computes SHA256
+5. Saves the result to the output directory
+
+== Experiments
+
+=== 1. Uberjar Comparison
+
+**Directory:** `experiments/uberjar-comparison/`
+
+Measures the overall impact of the maps with distinct constant keys optimization on the complete Clojure uberjar:
+- Total size reduction
+- Number of affected class files
+- Bytecode instruction differences
+
+**Run:**
+```bash
+cd experiments/uberjar-comparison/
+./01-maps-distinct-constant-keys.sh
+```
+
+== Hypothesis
+
+Maps with constant keys are extremely common in Clojure code:
+- Configuration maps: `` `{:timeout ~ms :retries ~n} ``
+- Keyword argument maps
+- Destructuring patterns: `` `{:keys [~x ~y]} ``
+
+We hypothesize that:
+1. Using map literals instead of `apply/hash-map/concat` reduces bytecode size
+2. Map literals are evaluated more efficiently at runtime
+3. This is one of the most impactful optimizations for real-world Clojure code
+
+== Results Summary
+
+Results will be documented after running the experiment.
+
+== See Also
+
+- link:../04-singleton-maps/README.adoc[Singleton Maps Optimization Subproject]
+- link:../06-maps-without-splices/README.adoc[Maps Without Splices Optimization Subproject]
+- link:../EXPERIMENT_PLAN.adoc[Complete Experiment Plan]
+- link:../optimize-syntax-quote.md[Technical Motivation Document]
+- https://github.com/frenchy64/clojure/pull/41[PR #41: Full Optimization Implementation]

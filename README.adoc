@@ -94,7 +94,7 @@ The planned sequence of optimizations, organized by LispReader.java sections (se
 
 **Maps (IPersistentMap):**
 4. ✓ **Singleton maps** - Optimize 1-entry maps to use map literals
-5. ⏭ **Maps with distinct constant keys** - Deferred (marked as TODO in full patch)
+5. ✓ **Maps with distinct constant keys** - Use map literals when keys are provably distinct
 6. ✓ **Maps without splices** - Use `(hash-map ...)` instead of concat/apply
 
 **Sets (IPersistentSet):**

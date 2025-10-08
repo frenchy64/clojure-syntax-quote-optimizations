@@ -12,11 +12,11 @@ This document outlines the planned experiments for systematically testing syntax
 2. ✅ **Boolean Optimization** (`02-boolean-optimization`) - Make `true` and `false` self-evaluating  
 3. ✅ **Empty Collection Optimization** (`03-empty-collection-optimization`) - Make `[]`, `{}`, `()`, `#{}` self-evaluating
 4. ✅ **Singleton Maps** (`04-singleton-maps`) - Optimize 1-entry maps to use map literals
-5. ⏭️  **Maps with Distinct Constant Keys** - Marked as TODO in full patch, not yet implemented
+5. ✅ **Maps with Distinct Constant Keys** (`05-maps-distinct-constant-keys`) - Use map literals when keys are distinct constants
 6. ✅ **Maps without Splices** (`06-maps-without-splices`) - Use `(hash-map k v ...)` instead of concat/apply
 7. ✅ **Singleton Sets** (`07-singleton-sets`) - Optimize 1-element sets to use set literals
 8. ⏭️  **Sets with Distinct Constants** - Marked as TODO in full patch, not yet implemented  
-9. ✅ **Maps without Splices** (`09-sets-without-splices`) - Use `(hash-set e ...)` instead of concat/apply
+9. ✅ **Sets without Splices** (`09-sets-without-splices`) - Use `(hash-set e ...)` instead of concat/apply
 
 == Planned Experiments: Maps (IPersistentMap)
 
@@ -58,9 +58,9 @@ else
 - Overlaps with empty collection optimization (empty maps already handled)
 - This experiment includes the singleton map optimization only
 
-=== 05. Maps with Distinct Constant Keys ⏭️ DEFERRED
+=== 05. Maps with Distinct Constant Keys ✅ COMPLETED
 
-**Status:** Marked as TODO in optimize-syntax-quote-full.patch. Not yet implemented. May be added in future work.
+**Status:** Implementation complete, patch verified, experiment scripts ready.
 
 **Code Section:**
 ```java

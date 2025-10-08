@@ -28,6 +28,10 @@ jobs:
             title: "Singleton Maps Optimization"
             dir: "04-singleton-maps"
             script: "01-singleton-maps.sh"
+          - name: maps-distinct-constant-keys
+            title: "Maps with Distinct Constant Keys Optimization"
+            dir: "05-maps-distinct-constant-keys"
+            script: "01-maps-distinct-constant-keys.sh"
           - name: maps-without-splices
             title: "Maps Without Splices Optimization"
             dir: "06-maps-without-splices"
