@@ -1,0 +1,137 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: GitHub Copilot <copilot@github.com>
+Date: Wed, 8 Oct 2025 00:00:00 +0000
+Subject: [PATCH] Optimize syntax-quote to make simple constant collections
+ self-evaluating
+
+Make collections containing only constants (e.g., [1 2 3], {:a 1}, #{:x :y})
+expand to (quote [1 2 3]) instead of verbose construction code like
+(apply vector (seq (concat (list 1) (list 2) (list 3)))).
+
+This optimization detects when all elements of a collection are constants
+(numbers, keywords, strings, characters, booleans, nil, or nested constant
+collections) and wraps the entire collection in a single quote form.
+
+Based on the full optimization in https://github.com/frenchy64/clojure/pull/41
+
+Note: This patch is conceptual and represents the essence of the optimization.
+The actual implementation requires extracting specific commits from PR #41.
+For a working patch, see the optimize-syntax-quote-full.patch in the repository root.
+---
+ src/jvm/clojure/lang/LispReader.java | 80 ++++++++++++++++++++++++++++
+ 1 file changed, 80 insertions(+)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 8d7079c..example 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1050,6 +1050,45 @@ public static class SyntaxQuoteReader extends AFn{
+ 		return ret;
+ 	}
+ 
++	// Helper functions for constant collection optimization
++	
++	// Returns true if form is or can be converted to a constant
++	private static boolean isQuoteLiftable(Object form) {
++		if(form instanceof Keyword
++				|| form instanceof Number
++				|| form instanceof Character
++				|| form instanceof String
++				|| form instanceof Boolean
++				|| form == null)
++			return true;
++		else if(form instanceof IPersistentVector)
++			{
++			// [:a 1 'b] => true (transform to (quote [:a 1 b]))
++			// [a b c]   => false
++			return isAllQuoteLiftable(RT.seq(form));
++			}
++		else if(form instanceof ISeq || form instanceof IPersistentList)
++			{
++			ISeq seq = RT.seq(form);
++			// () => true (already constant)
++			if(seq == null)
++				return true;
++			// (quote X) => true (already constant)
++			else if(seq.count() == 2 && Util.equals(RT.first(form),QUOTE))
++				return true;
++			return isAllQuoteLiftable(seq);
++			}
++		else if(form instanceof IPersistentMap)
++			return isAllQuoteLiftable(RT.seq(form));
++		else if(form instanceof IPersistentSet)
++			return isAllQuoteLiftable(RT.seq(form));
++		else
++			return false;
++	}
++
++	// Returns true iff all seq elems can be converted to constants
++	private static boolean isAllQuoteLiftable(ISeq seq) {
++		for(; seq != null; seq = seq.next())
+ 			{
++			if(!isQuoteLiftable(seq.first()))
++				return false;
++			}
++		return true;
++	}
++
++	// Lifts quotes from seq elements: [(quote a) 1 (quote b)] => [a 1 b]
++	private static ISeq sqLiftQuoted(ISeq seq) {
++		PersistentVector ret = PersistentVector.EMPTY;
++		for(; seq != null; seq = seq.next())
++			{
++			Object item = seq.first();
++			if(item instanceof ISeq)
++				{
++				ISeq itemSeq = (ISeq) item;
++				if(itemSeq.count() == 2 && Util.equals(RT.first(item),QUOTE))
++					ret = ret.cons(RT.second(item));
++				else
++					ret = ret.cons(item);
++				}
++			else
++				ret = ret.cons(item);
++			}
++		return ret.seq();
++	}
++
+ 	static Object syntaxQuote(Object form) throws IOException{
+ 		Object ret;
+ 		Object obj = Compiler.resolveSymbol((Symbol) form);
+@@ -1100,6 +1139,10 @@ public static class SyntaxQuoteReader extends AFn{
+ 		else if(form instanceof IPersistentVector)
+ 			{
+ 			ISeq seq = ((IPersistentVector) form).seq();
++			ISeq flat = sqExpandFlat(seq);
++			if(isAllQuoteLiftable(flat))
++				ret = RT.list(QUOTE, LazilyPersistentVector.create(sqLiftQuoted(flat)));
++			else
+ 				ret = LazilyPersistentVector.create(sqExpandFlat(seq));
+ 			}
+ 		else if(form instanceof IPersistentSet)
+@@ -1107,6 +1150,10 @@ public static class SyntaxQuoteReader extends AFn{
+ 			ISeq seq = ((IPersistentSet) form).seq();
+ 			if(seq == null)
+ 				ret = PersistentHashSet.EMPTY;
++			else if(!hasSplice(seq))
++				{
++				ISeq flat = sqExpandFlat(seq);
++				if(isAllQuoteLiftable(flat))
++					ret = RT.list(QUOTE, PersistentHashSet.create(RT.toArray(sqLiftQuoted(flat))));
+ 				else
+ 					ret = RT.cons(HASHSET, sqExpandFlat(seq));
+ 				}
+@@ -1120,6 +1167,10 @@ public static class SyntaxQuoteReader extends AFn{
+ 			ISeq seq = RT.seq(form);
+ 			if(seq == null)
+ 				ret = PersistentList.EMPTY;
++			else if(!hasSplice(seq))
++				{
++				ISeq flat = sqExpandFlat(seq);
++				if(isAllQuoteLiftable(flat))
++					ret = RT.list(QUOTE, sqLiftQuoted(flat));
+ 				else
+ 					ret = RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq)));
+ 				}
+-- 
+2.51.0
