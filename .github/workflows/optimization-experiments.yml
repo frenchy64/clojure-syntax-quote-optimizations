@@ -24,10 +24,10 @@ jobs:
             title: "Empty Collection Optimization"
             dir: "03-empty-collection-optimization"
             script: "01-empty-collection-optimization.sh"
-          - name: simple-constant-collections
-            title: "Simple Constant Collections Optimization"
-            dir: "04-simple-constant-collections"
-            script: "01-simple-constant-collections.sh"
+          - name: singleton-maps
+            title: "Singleton Maps Optimization"
+            dir: "04-singleton-maps"
+            script: "01-singleton-maps.sh"
     
     steps:
     - name: Checkout repository

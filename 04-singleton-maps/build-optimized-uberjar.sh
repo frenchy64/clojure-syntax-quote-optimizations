@@ -1,14 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
-# Wrapper script for building simple-constant-collections-optimized Clojure uberjar
+# Wrapper script for building singleton-maps-optimized Clojure uberjar
 #
 # Usage: ./build-optimized-uberjar.sh [output_dir]
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SHARED_SCRIPT="$REPO_ROOT/shared/build-optimized-uberjar.sh"
-PATCH_FILE="$SCRIPT_DIR/simple-constant-collections.patch"
+PATCH_FILE="$SCRIPT_DIR/singleton-maps.patch"
 OUTPUT_DIR="${1:-$SCRIPT_DIR/build}"
 
 if [ ! -x "$SHARED_SCRIPT" ]; then
@@ -16,4 +16,4 @@ if [ ! -x "$SHARED_SCRIPT" ]; then
     exit 1
 fi
 
-exec "$SHARED_SCRIPT" "simple-constant-collections" "$PATCH_FILE" "$OUTPUT_DIR"
+exec "$SHARED_SCRIPT" "singleton-maps" "$PATCH_FILE" "$OUTPUT_DIR"

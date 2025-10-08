@@ -1,0 +1,318 @@
+= Syntax-Quote Optimization Experiment Plan
+:toc:
+:toclevels: 4
+
+== Overview
+
+This document outlines the planned experiments for systematically testing syntax-quote optimizations. The experiments are organized by the sections of `LispReader.java` that they modify, allowing us to isolate and measure the impact of each optimization independently.
+
+== Completed Experiments
+
+1. ✅ **Nil Optimization** (`01-nil-optimization`) - Make `nil` self-evaluating
+2. ✅ **Boolean Optimization** (`02-boolean-optimization`) - Make `true` and `false` self-evaluating  
+3. ✅ **Empty Collection Optimization** (`03-empty-collection-optimization`) - Make `[]`, `{}`, `()`, `#{}` self-evaluating
+
+== Planned Experiments: Maps (IPersistentMap)
+
+The map optimization section in LispReader.java contains several sub-optimizations that can be tested independently:
+
+=== 04. Singleton Maps (NEXT)
+
+**Code Section:**
+```java
+else if(seq.count() == 2)
+    ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
+```
+
+**Description:** 
+Optimize syntax-quoted maps with exactly one key-value pair to use map literals instead of `(apply hash-map (seq (concat ...)))`.
+
+**Hypothesis:**
+Singleton maps are common enough (e.g., in let-destructuring, keyword arguments) that optimizing them provides measurable bytecode and performance benefits.
+
+**Safety:**
+Since there's only one entry, keys cannot clash. Clojure map literals require distinct keys at both compile-time and runtime, but singleton maps trivially satisfy this requirement.
+
+**Patch Logic:**
+```java
+// In IPersistentMap case:
+if(seq.count() == 2 && !hasSplice(seq))
+    ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
+else
+    ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
+```
+
+**Examples:**
+- `` `{:a ~x} `` => `{:a x}` instead of `(apply hash-map (seq (concat (list :a) (list x))))`
+
+**Notes:**
+- Must exclude maps with top-level splices (`~@`)
+- Overlaps with empty collection optimization (empty maps already handled)
+- This experiment includes the singleton map optimization only
+
+=== 05. Maps with Distinct Constant Keys
+
+**Code Section:**
+```java
+// `{k v ...} => (hash-map k v ...)
+//TODO if keys are all constants we can expand to {k v ...}, see `map constant keys` test
+else
+    ret = RT.cons(HASHMAP, sqExpandFlat(seq));
+```
+
+**Description:**
+Optimize syntax-quoted maps where all keys are constants and provably distinct to use map literals.
+
+**Hypothesis:**
+Keyword maps like `{:a 1 :b 2}` are extremely common in Clojure. If we can prove keys are distinct at compile-time, we can use map literals which are faster and generate less bytecode.
+
+**Patch Logic:**
+```java
+// Pseudocode: hasDistinctKeys analyzes even-indexed elements (keys)
+// and returns true iff they are distinct constants
+if(!hasSplice(seq) && hasDistinctKeys(seq))
+    ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
+else
+    ret = RT.list(APPLY, HASHMAP, RT.cons(CONCAT, sqExpandList(seq)));
+```
+
+**Examples:**
+- `` `{:a 1 :b 2} `` => `{:a 1 :b 2}` instead of `(apply hash-map (seq (concat ...)))`
+- `` `(let [{:keys [] :or {}} (do ~@body)]) `` - smaller compiled size
+
+**Notes:**
+- Overlaps with empty maps (count 0) and singleton maps (count 2)
+- Could be refined to exclude those cases for more granular measurements
+- Must preserve evaluation order of values (use Array Map which is ordered)
+- Need to implement `hasDistinctKeys()` helper function
+
+=== 06. Maps without Splices
+
+**Code Section:**
+```java
+else
+    ret = RT.cons(HASHMAP, sqExpandFlat(seq));
+```
+
+**Description:**
+For maps without top-level splices, use `(hash-map k v ...)` instead of `(apply hash-map (seq (concat ...)))`.
+
+**Hypothesis:**
+Even when we can't use map literals, avoiding `concat` and `apply` reduces instructions and improves performance.
+
+**Patch Logic:**
+```java
+if(!hasSplice(seq))
+    ret = RT.cons(HASHMAP, sqExpandFlat(seq));
+else
+    ret = RT.list(APPLY, HASHMAP, RT.cons(CONCAT, sqExpandList(seq)));
+```
+
+**Examples:**
+- `` `{:a ~x :b ~y} `` => `(hash-map :a x :b y)` instead of `(apply hash-map (seq (concat ...)))`
+
+**Notes:**
+- Overlaps with empty, singleton, and constant-key optimizations
+- Could be refined to exclude those for granular measurement
+- This is a fallback when map literals can't be used
+
+== Planned Experiments: Sets (IPersistentSet)
+
+The set optimization section follows a similar pattern to maps:
+
+=== 07. Singleton Sets
+
+**Code Section:**
+Similar to singleton maps, for sets with exactly one element.
+
+**Description:**
+Optimize syntax-quoted sets with exactly one element to use set literals.
+
+**Patch Logic:**
+```java
+if(seq != null && seq.count() == 1 && !hasSplice(seq))
+    ret = PersistentHashSet.create(RT.toArray(sqExpandFlat(seq)));
+else if(seq == null)
+    ret = PersistentHashSet.EMPTY;
+else
+    ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
+```
+
+**Examples:**
+- `` `#{:a} `` => `#{:a}` instead of `(apply hash-set (seq (concat (list :a))))`
+
+=== 08. Sets with Distinct Constants
+
+**Code Section:**
+```java
+// `#{a ~b c} => (hash-set `a b `c)
+// TODO if distinct, compile to set literal: `#{a ~b c} => '#{a b c}
+else
+    ret = RT.cons(HASHSET, sqExpandFlat(seq));
+```
+
+**Description:**
+Optimize sets where all elements are provably distinct constants to use set literals.
+
+**Patch Logic:**
+```java
+if(!hasSplice(seq) && hasDistinctElements(seq))
+    ret = // set literal with all elements
+else if(!hasSplice(seq))
+    ret = RT.cons(HASHSET, sqExpandFlat(seq));
+else
+    ret = RT.list(APPLY, HASHSET, RT.cons(CONCAT, sqExpandList(seq)));
+```
+
+**Notes:**
+- Overlaps with empty and singleton sets
+- Could be refined for more granular measurements
+
+=== 09. Sets without Splices
+
+**Code Section:**
+```java
+else
+    ret = RT.cons(HASHSET, sqExpandFlat(seq));
+```
+
+**Description:**
+For sets without top-level splices, use `(hash-set ...)` instead of `(apply hash-set (seq (concat ...)))`.
+
+**Patch Logic:**
+```java
+if(!hasSplice(seq))
+    ret = RT.cons(HASHSET, sqExpandFlat(seq));
+else
+    ret = RT.list(APPLY, HASHSET, RT.cons(CONCAT, sqExpandList(seq)));
+```
+
+== Planned Experiments: Lists (ISeq/IPersistentList)
+
+Lists have unique evaluation semantics (function calls) that make them different from vectors:
+
+=== 10. Empty Lists
+
+**Description:**
+Already covered by experiment 03 (empty collections).
+
+=== 11. Lists with Trailing Splice Only
+
+**Code Section:**
+```java
+// `(~a b ~@c) => (list* a `b c)
+if(hasOnlyTrailingSplice(seq))
+    ret = RT.cons(LIST_STAR, sqExpandFlat(seq));
+```
+
+**Description:**
+When only the last element is a splice, use `list*` instead of general concat logic.
+
+=== 12. Lists without Splices - Constant Propagation
+
+**Code Section:**
+```java
+ISeq flat = sqExpandFlat(seq);
+// `(:a 1 'b) => '(:a 1 b)
+if(isAllQuoteLiftable(flat))
+    ret = RT.list(QUOTE, sqLiftQuoted(flat));
+// `(a ~b c) => (list `a b `c)
+else
+    ret = RT.cons(LIST, flat);
+```
+
+**Description:**
+For lists of all constants, use quoted lists. Otherwise use `(list ...)` instead of concat.
+
+== Planned Experiments: Vectors (IPersistentVector)
+
+Vectors are simpler than lists because they don't have function call semantics:
+
+=== 13. Single Splice Vectors
+
+**Code Section:**
+```java
+// `[~@v] => (vec v)
+if(seq.count() == 1)
+    ret = RT.cons(VEC, sqExpandList(seq));
+```
+
+**Description:**
+Vectors with a single splice can use `vec` directly.
+
+=== 14. Vectors with Trailing Splice Only
+
+**Code Section:**
+```java
+// `[a b ~@c] => (apply vector a b c)
+else if(hasOnlyTrailingSplice(seq))
+    ret = RT.cons(APPLY, RT.cons(VECTOR, sqExpandFlat(seq)));
+```
+
+=== 15. Vectors without Splices - Constant Propagation
+
+**Code Section:**
+```java
+ISeq flat = sqExpandFlat(seq);
+// `[] => []
+if(seq == null)
+    ret = PersistentVector.EMPTY;
+// `[:a 1 'b] => '[:a 1 b]
+else if(isAllQuoteLiftable(flat))
+    ret = RT.list(QUOTE, LazilyPersistentVector.create(sqLiftQuoted(flat)));
+// `[a ~b c] => [`a b `c]
+else
+    ret = LazilyPersistentVector.create(flat);
+```
+
+**Description:**
+Vectors of all constants can be quoted. Otherwise use vector literals.
+
+== Planned Experiments: Constant Propagation
+
+The constant propagation optimization is the most ambitious and involves the helper functions:
+
+=== 16. Helper Functions for Constant Analysis
+
+**Key Functions:**
+- `isQuoteLiftable(Object form)` - Returns true if form is or can be converted to a constant
+- `isAllQuoteLiftable(ISeq seq)` - Returns true iff all seq elements can be converted to constants
+- `liftQuoted(Object form)` - Removes quote wrappers from forms
+- `sqLiftQuoted(ISeq seq)` - Transforms each element as if already quoted
+- `sqExpandFlat(ISeq seq)` - Treats `~@` as `~` for flat expansion
+
+**Description:**
+These helpers enable detecting when collections contain only constants, allowing them to be wrapped in a single quote instead of verbose construction code.
+
+**Approach:**
+- Test the infrastructure first with simple cases
+- Gradually add support for nested constant collections
+- Measure impact on different types of constant collections
+
+=== 17. Constant Collection Quoting
+
+**Description:**
+When all elements of a collection are constants (numbers, keywords, strings, characters, or nested constant collections), wrap the entire collection in a single quote.
+
+**Examples:**
+- `` `[1 2 3] `` => `'[1 2 3]` instead of `(apply vector (seq (concat (list 1) (list 2) (list 3))))`
+- `` `{:a 1 :b 2} `` => `'{:a 1 :b 2}` when keys are provably distinct
+
+**Approach:**
+Split into sub-experiments by collection type and nesting level.
+
+== Testing Methodology
+
+For each experiment:
+
+1. **Create targeted patch** - Extract only the specific optimization from the full patch
+2. **Build optimized JAR** - Apply patch and build
+3. **Compare with baseline** - Measure size, affected classes, bytecode differences
+4. **Verify correctness** - Ensure semantic equivalence
+5. **Document results** - Record metrics and analysis
+
+== Reference
+
+- Full patch: `optimize-syntax-quote-full.patch`
+- Original PR: https://github.com/frenchy64/clojure/pull/41
+- JIRA: CLJ-2908, CLJ-1506
