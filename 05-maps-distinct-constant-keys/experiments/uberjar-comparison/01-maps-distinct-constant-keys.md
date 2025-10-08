@@ -60,8 +60,11 @@ if(seq != null && (seq.count() % 2) == 0 && seq.count() > 0)
         if(idx % 2 == 0) // This is a key position
             {
             Object key = s.first();
-            // Key must not be unquote or unquote-splicing (must be constant)
-            if(isUnquote(key) || isUnquoteSplicing(key))
+            // Key must be a self-evaluating constant (keyword, number, string, boolean, nil, char)
+            if(isUnquote(key) || isUnquoteSplicing(key) ||
+               (key instanceof Symbol) ||
+               (key instanceof ISeq) ||
+               (key instanceof IPersistentCollection && !(key instanceof Keyword)))
                 {
                 hasDistinctConstantKeys = false;
                 break;
@@ -99,6 +102,8 @@ if(hasDistinctConstantKeys)
 else
     ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
 ```
+
+**Important**: A "constant" is a self-evaluating form whose value is known at compile-time (keywords, numbers, strings, booleans, nil, characters). Symbols are NOT constants because they reference bindings whose values are only known at runtime.
 
 ## Results
 

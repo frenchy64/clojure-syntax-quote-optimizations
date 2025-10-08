@@ -52,8 +52,11 @@ if(seq != null)
     for(ISeq s = seq; s != null; s = s.next())
         {
         Object element = s.first();
-        // Element must not be unquote or unquote-splicing (must be constant)
-        if(isUnquote(element) || isUnquoteSplicing(element))
+        // Element must be a self-evaluating constant (keyword, number, string, boolean, nil, char)
+        if(isUnquote(element) || isUnquoteSplicing(element) ||
+           (element instanceof Symbol) ||
+           (element instanceof ISeq) ||
+           (element instanceof IPersistentCollection && !(element instanceof Keyword)))
             {
             hasDistinctConstants = false;
             break;
@@ -92,6 +95,8 @@ else
 ```
 
 This uses only existing functions from the codebase (`isUnquote`, `isUnquoteSplicing`, `Util.equiv`, `syntaxQuote`, `sqExpandList`).
+
+**Key change**: A constant is defined as a self-evaluating form (keywords, numbers, strings, booleans, nil, characters). Symbols, sequences, and non-keyword collections are NOT constants because their evaluation is not known at compile-time.
 
 == Building the Optimized Uberjar
 

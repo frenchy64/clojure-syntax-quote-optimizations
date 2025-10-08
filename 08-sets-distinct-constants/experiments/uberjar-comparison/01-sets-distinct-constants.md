@@ -58,8 +58,11 @@ if(seq != null)
     for(ISeq s = seq; s != null; s = s.next())
         {
         Object element = s.first();
-        // Element must not be unquote or unquote-splicing (must be constant)
-        if(isUnquote(element) || isUnquoteSplicing(element))
+        // Element must be a self-evaluating constant (keyword, number, string, boolean, nil, char)
+        if(isUnquote(element) || isUnquoteSplicing(element) ||
+           (element instanceof Symbol) ||
+           (element instanceof ISeq) ||
+           (element instanceof IPersistentCollection && !(element instanceof Keyword)))
             {
             hasDistinctConstants = false;
             break;
@@ -96,6 +99,8 @@ if(hasDistinctConstants && seq != null)
 else
     ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
 ```
+
+**Important**: A "constant" is a self-evaluating form whose value is known at compile-time (keywords, numbers, strings, booleans, nil, characters). Symbols are NOT constants because they reference bindings whose values are only known at runtime.
 
 ## Results
 

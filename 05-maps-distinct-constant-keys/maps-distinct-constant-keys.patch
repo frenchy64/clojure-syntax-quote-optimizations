@@ -1,21 +1,21 @@
-From b60e7285dbd6328c9c5b530c4ece46faf305e3d9 Mon Sep 17 00:00:00 2001
+From 55ac541b3cb2de72195ed6b001ec3f4c8c17dcd3 Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
-Date: Wed, 8 Oct 2025 07:41:40 +0000
+Date: Wed, 8 Oct 2025 14:15:29 +0000
 Subject: [PATCH] Optimize syntax-quote for maps with distinct constant keys
+ (fixed constant detection)
 
 ---
- src/jvm/clojure/lang/LispReader.java | 54 +++++++++++++++++++++++++++-
- 1 file changed, 53 insertions(+), 1 deletion(-)
+ src/jvm/clojure/lang/LispReader.java | 56 ++++++++++++++++++++++++++++
+ 1 file changed, 56 insertions(+)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079c..2d6f861 100644
+index 8d7079c..d855580 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
-@@ -1093,7 +1093,59 @@ public static class SyntaxQuoteReader extends AFn{
+@@ -1093,6 +1093,62 @@ public static class SyntaxQuoteReader extends AFn{
  			else if(form instanceof IPersistentMap)
  				{
  				IPersistentVector keyvals = flattenMap(form);
--				ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
 +				ISeq seq = keyvals.seq();
 +				// Check if all keys are distinct constants
 +				boolean hasDistinctConstantKeys = false;
@@ -30,8 +30,11 @@ index 8d7079c..2d6f861 100644
 +						if(idx % 2 == 0) // This is a key position
 +							{
 +							Object key = s.first();
-+							// Key must not be unquote or unquote-splicing (must be constant)
-+							if(isUnquote(key) || isUnquoteSplicing(key))
++							// Key must be a self-evaluating constant (keyword, number, string, boolean, nil, char)
++							if(isUnquote(key) || isUnquoteSplicing(key) ||
++							   (key instanceof Symbol) ||
++							   (key instanceof ISeq) ||
++							   (key instanceof IPersistentCollection && !(key instanceof Keyword)))
 +								{
 +								hasDistinctConstantKeys = false;
 +								break;
@@ -69,9 +72,9 @@ index 8d7079c..2d6f861 100644
 +				else
 +					ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
 +				}
+ 				ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
  				}
  			else if(form instanceof IPersistentVector)
- 				{
 -- 
 2.51.0
 

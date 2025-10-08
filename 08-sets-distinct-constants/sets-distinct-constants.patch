@@ -1,17 +1,18 @@
-From cee5d77f3b66ffdf8d72d3d353592b6420f5315d Mon Sep 17 00:00:00 2001
+From 587d1aaf8a429afe1ccbbc6d876d170a79c34b38 Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
-Date: Wed, 8 Oct 2025 13:59:25 +0000
-Subject: [PATCH] Optimize syntax-quote for sets with distinct constants
+Date: Wed, 8 Oct 2025 14:15:56 +0000
+Subject: [PATCH] Optimize syntax-quote for sets with distinct constants (fixed
+ constant detection)
 
 ---
- src/jvm/clojure/lang/LispReader.java | 50 +++++++++++++++++++++++++++-
- 1 file changed, 49 insertions(+), 1 deletion(-)
+ src/jvm/clojure/lang/LispReader.java | 53 +++++++++++++++++++++++++++-
+ 1 file changed, 52 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079c..10cde88 100644
+index 8d7079c..fd335cb 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
-@@ -1101,7 +1101,55 @@ public static class SyntaxQuoteReader extends AFn{
+@@ -1101,7 +1101,58 @@ public static class SyntaxQuoteReader extends AFn{
  				}
  			else if(form instanceof IPersistentSet)
  				{
@@ -27,8 +28,11 @@ index 8d7079c..10cde88 100644
 +					for(ISeq s = seq; s != null; s = s.next())
 +						{
 +						Object element = s.first();
-+						// Element must not be unquote or unquote-splicing (must be constant)
-+						if(isUnquote(element) || isUnquoteSplicing(element))
++						// Element must be a self-evaluating constant (keyword, number, string, boolean, nil, char)
++						if(isUnquote(element) || isUnquoteSplicing(element) ||
++						   (element instanceof Symbol) ||
++						   (element instanceof ISeq) ||
++						   (element instanceof IPersistentCollection && !(element instanceof Keyword)))
 +							{
 +							hasDistinctConstants = false;
 +							break;
