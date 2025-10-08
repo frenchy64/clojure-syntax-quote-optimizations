@@ -20,6 +20,10 @@ jobs:
             title: "Boolean Optimization"
             dir: "boolean-optimization"
             script: "01-boolean-optimization.sh"
+          - name: empty-collection
+            title: "Empty Collection Optimization"
+            dir: "empty-collection-optimization"
+            script: "01-empty-collection-optimization.sh"
     
     steps:
     - name: Checkout repository
