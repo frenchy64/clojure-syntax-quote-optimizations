@@ -1,33 +1,34 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 98c45c6c675588862deae302ce49fe6ecda0d3d2 Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
-Date: Wed, 8 Oct 2025 00:00:00 +0000
+Date: Wed, 8 Oct 2025 05:41:08 +0000
 Subject: [PATCH] Optimize syntax-quote for singleton maps
 
-This patch optimizes the syntax-quote reader to use map literals for
-singleton maps (maps with exactly one key-value pair) instead of
-generating verbose construction code via concat/apply.
-
-For example:
-- `{:a ~x} => {:a x} instead of (apply hash-map (seq (concat (list :a) (list x))))
-
-This is safe because singleton maps trivially satisfy the distinct-keys
-requirement of map literals (can't have duplicate keys with only one entry).
-
-This optimization only applies when there are no top-level splices (~@).
-
-Based on the work in https://github.com/frenchy64/clojure/pull/41
 ---
- src/jvm/clojure/lang/LispReader.java | 27 +++++++++++++++++++++++++--
- 1 file changed, 25 insertions(+), 2 deletions(-)
+ src/jvm/clojure/lang/LispReader.java | 33 +++++++++++++++++++++++++++-
+ 1 file changed, 32 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079cf..a0e7fe67 100644
+index 8d7079cf..3793beb1 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
-@@ -1046,6 +1046,30 @@ public static class SyntaxQuoteReader extends AFn{
-                 Symbol nsym = null;
-                 if(sym.ns != null){
-                     Symbol alias = Symbol.intern(null, sym.ns);
+@@ -1093,7 +1093,12 @@ public static class SyntaxQuoteReader extends AFn{
+ 			else if(form instanceof IPersistentMap)
+ 				{
+ 				IPersistentVector keyvals = flattenMap(form);
+-				ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
++				ISeq seq = keyvals.seq();
++				// Optimize singleton maps: `{:a ~x} => {:a x}
++				if(seq != null && seq.count() == 2 && !hasSplice(seq))
++					ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
++				else
++					ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
+ 				}
+ 			else if(form instanceof IPersistentVector)
+ 				{
+@@ -1147,6 +1152,32 @@ public static class SyntaxQuoteReader extends AFn{
+ 		return ret.seq();
+ 	}
+ 
 +
 +	// returns true iff seq contains ~@
 +	private static boolean hasSplice(ISeq seq) {
@@ -52,22 +53,11 @@ index 8d7079cf..a0e7fe67 100644
 +			}
 +		return ret.seq();
 +	}
-                     nsym = resolver.resolveClass(alias);
-                     if(nsym == null)
-                         nsym = resolver.resolveAlias(alias);
-@@ -1093,7 +1117,12 @@ public static class SyntaxQuoteReader extends AFn{
- 			else if(form instanceof IPersistentMap)
- 				{
- 				IPersistentVector keyvals = flattenMap(form);
--				ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
-+				ISeq seq = keyvals.seq();
-+				// Optimize singleton maps: `{:a ~x} => {:a x}
-+				if(seq != null && seq.count() == 2 && !hasSplice(seq))
-+					ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
-+				else
-+					ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
- 				}
- 			else if(form instanceof IPersistentVector)
- 				{
++
++
+ 	private static IPersistentVector flattenMap(Object form){
+ 		IPersistentVector keyvals = PersistentVector.EMPTY;
+ 		for(ISeq s = RT.seq(form); s != null; s = s.next())
 -- 
 2.51.0
+
