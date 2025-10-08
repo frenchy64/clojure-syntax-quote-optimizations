@@ -4,71 +4,93 @@ Date: Wed, 8 Oct 2025 20:44:11 +0000
 Subject: [PATCH] Optimize syntax-quote for sets with distinct constants
 
 ---
- src/jvm/clojure/lang/LispReader.java | 51 +++++++++++++++++++++++++++-
- 1 file changed, 50 insertions(+), 1 deletion(-)
+ src/jvm/clojure/lang/LispReader.java | 65 ++++++++++++++++++++++++++++
+ 1 file changed, 65 insertions(+)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079cf..7a81ccfe 100644
+index 8d7079cf..fc9b25a4 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
 @@ -1101,7 +1101,56 @@ public static class SyntaxQuoteReader extends AFn{
  				}
  			else if(form instanceof IPersistentSet)
  				{
--				ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentSet) form).seq()))));
-+ISeq seq = ((IPersistentSet) form).seq();
-+// Optimize sets with distinct constant elements to use set literals
-+if(seq != null && seq.count() > 0)
-+{
-+boolean hasDistinctConstantElements = true;
-+IPersistentSet seenElements = PersistentHashSet.EMPTY;
++				ISeq seq = ((IPersistentSet) form).seq();
++				// Optimize sets with distinct constant elements to use set literals
++				if(seq != null && seq.count() > 0)
++				{
++					boolean hasDistinctConstantElements = true;
++					IPersistentSet seenElements = PersistentHashSet.EMPTY;
 +
-+// Check if all elements are self-evaluating constants
-+// and that no two elements are equivalent
-+ISeq s = seq;
-+while(s != null)
-+{
-+Object element = s.first();
-+// Test for self-evaluating constants
-+if(!(element instanceof Keyword) &&
-+   !(element == null) &&
-+   !(element instanceof Number) &&
-+   !(element instanceof String) &&
-+   !(element instanceof Boolean) &&
-+   !(element instanceof Character))
-+{
-+hasDistinctConstantElements = false;
-+break;
-+}
++					// Check if all elements are self-evaluating constants
++					// and that no two elements are equivalent
++					ISeq s = seq;
++					while(s != null)
++					{
++						Object element = s.first();
++						// Test for self-evaluating constants
++						if(!(element instanceof Keyword) &&
++						   !(element == null) &&
++						   !(element instanceof Number) &&
++						   !(element instanceof String) &&
++						   !(element instanceof Boolean) &&
++						   !(element instanceof Character))
++						{
++							hasDistinctConstantElements = false;
++							break;
++						}
 +
-+// Check for duplicate elements
-+if(seenElements.contains(element))
-+{
-+hasDistinctConstantElements = false;
-+break;
-+}
-+else
-+{
-+seenElements = (IPersistentSet) seenElements.cons(element);
-+}
++						// Check for duplicate elements
++						if(seenElements.contains(element))
++						{
++							hasDistinctConstantElements = false;
++							break;
++						}
++						else
++						{
++							seenElements = (IPersistentSet) seenElements.cons(element);
++						}
 +
-+s = s.next();
-+}
++						s = s.next();
++					}
 +
-+if(hasDistinctConstantElements)
-+{
-+// All elements are distinct constants, expand to set literal
-+ret = PersistentHashSet.create(RT.toArray(sqExpandFlat(seq)));
-+}
-+else
-+ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
-+}
-+else
-+ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
++					if(hasDistinctConstantElements)
++					{
++						// All elements are distinct constants, expand to set literal
++						ret = PersistentHashSet.create(RT.toArray(sqExpandFlat(seq)));
++					}
++					else
+ 				ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
++				}
++				else
++					ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
 +
  				}
  			else if(form instanceof ISeq || form instanceof IPersistentList)
  				{
+@@ -1147,6 +1196,22 @@ public static class SyntaxQuoteReader extends AFn{
+ 		return ret.seq();
+ 	}
+ 
++	// Helper function for flattening seq for map/set literals
++	// Expands unquotes directly (no wrapping in list)
++	private static ISeq sqExpandFlat(ISeq seq) {
++		PersistentVector ret = PersistentVector.EMPTY;
++		for(; seq != null; seq = seq.next())
++			{
++			Object item = seq.first();
++			if(isUnquote(item) || isUnquoteSplicing(item))
++				ret = ret.cons(RT.second(item));
++			else
++				ret = ret.cons(syntaxQuote(item));
++			}
++		return ret.seq();
++	}
++
++
+ 	private static IPersistentVector flattenMap(Object form){
+ 		IPersistentVector keyvals = PersistentVector.EMPTY;
+ 		for(ISeq s = RT.seq(form); s != null; s = s.next())
 -- 
 2.51.0
 
