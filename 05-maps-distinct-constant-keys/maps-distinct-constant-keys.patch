@@ -1,14 +1,14 @@
-From 0af0ca50f7189e7d4d28b54796c22c43b7c3f204 Mon Sep 17 00:00:00 2001
-From: Test User <test@example.com>
-Date: Wed, 8 Oct 2025 14:37:25 +0000
-Subject: [PATCH] Optimize maps with distinct constant keys
+From 5587a5e7973c86d510b61d8f6a9fbd4eb06ebb1c Mon Sep 17 00:00:00 2001
+From: GitHub Copilot <copilot@github.com>
+Date: Wed, 8 Oct 2025 20:43:11 +0000
+Subject: [PATCH] Optimize syntax-quote for maps with distinct constant keys
 
 ---
  src/jvm/clojure/lang/LispReader.java | 52 +++++++++++++++++++++++++++-
  1 file changed, 51 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079cf..77bc8bc7 100644
+index 8d7079cf..cccb1d82 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
 @@ -1093,7 +1093,57 @@ public static class SyntaxQuoteReader extends AFn{
@@ -16,57 +16,57 @@ index 8d7079cf..77bc8bc7 100644
  				{
  				IPersistentVector keyvals = flattenMap(form);
 -				ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
-+				ISeq seq = keyvals.seq();
-+				// Optimize maps with distinct constant keys to use map literals
-+				if(seq != null && seq.count() > 0 && seq.count() % 2 == 0)
-+					{
-+					boolean hasDistinctConstantKeys = true;
-+					IPersistentSet seenKeys = PersistentHashSet.EMPTY;
-+					
-+					// Check if all keys (even-indexed elements) are self-evaluating constants
-+					// and that no two keys are equivalent
-+					ISeq s = seq;
-+					for(int i = 0; s != null; i++, s = s.next())
-+						{
-+						if(i % 2 == 0) // key position
-+							{
-+							Object key = s.first();
-+							// Test for self-evaluating constants
-+							if(!(key instanceof Keyword) && 
-+							   !(key == null) && 
-+							   !(key instanceof Number) && 
-+							   !(key instanceof String) && 
-+							   !(key instanceof Boolean) && 
-+							   !(key instanceof Character))
-+								{
-+								hasDistinctConstantKeys = false;
-+								break;
-+								}
-+							
-+							// Check for duplicate keys
-+							if(seenKeys.contains(key))
-+								{
-+								hasDistinctConstantKeys = false;
-+								break;
-+								}
-+							else
-+								{
-+								seenKeys = (IPersistentSet) seenKeys.cons(key);
-+								}
-+							}
-+						}
-+					
-+					if(hasDistinctConstantKeys)
-+						{
-+						// All keys are distinct constants, expand to map literal
-+						ISeq expanded = sqExpandList(seq);
-+						ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(expanded));
-+						}
-+					else
-+						ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
-+					}
-+				else
-+					ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
++ISeq seq = keyvals.seq();
++// Optimize maps with distinct constant keys to use map literals
++if(seq != null && seq.count() > 0 && seq.count() % 2 == 0)
++{
++boolean hasDistinctConstantKeys = true;
++IPersistentSet seenKeys = PersistentHashSet.EMPTY;
++
++// Check if all keys (even-indexed elements) are self-evaluating constants
++// and that no two keys are equivalent
++ISeq s = seq;
++for(int i = 0; s != null; i++, s = s.next())
++{
++if(i % 2 == 0) // key position
++{
++Object key = s.first();
++// Test for self-evaluating constants
++if(!(key instanceof Keyword) &&
++   !(key == null) &&
++   !(key instanceof Number) &&
++   !(key instanceof String) &&
++   !(key instanceof Boolean) &&
++   !(key instanceof Character))
++{
++hasDistinctConstantKeys = false;
++break;
++}
++
++// Check for duplicate keys
++if(seenKeys.contains(key))
++{
++hasDistinctConstantKeys = false;
++break;
++}
++else
++{
++seenKeys = (IPersistentSet) seenKeys.cons(key);
++}
++}
++}
++
++if(hasDistinctConstantKeys)
++{
++// All keys are distinct constants, expand to map literal
++ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
++}
++else
++ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
++}
++else
++ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
++
  				}
  			else if(form instanceof IPersistentVector)
  				{
