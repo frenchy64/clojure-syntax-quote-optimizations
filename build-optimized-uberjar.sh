@@ -83,9 +83,10 @@ if type sdk &> /dev/null; then
     # Look for the latest installed temurin Java 8
     # Note: We use 'set +e' here because grep may return non-zero if no matches found,
     # which shouldn't cause the script to exit
+    # Pattern matches "| tem |" in Dist column, works even when Vendor column is blank
     set +e
     JAVA8_VERSION=$(sdk list java 2>/dev/null | \
-        grep "tem" | \
+        grep "| tem " | \
         grep "installed" | \
         grep "8\." | \
         awk -F'|' '{print $NF}' | \
@@ -98,9 +99,10 @@ if type sdk &> /dev/null; then
         echo "Installing latest temurin Java 8..."
         
         # Find the latest available temurin Java 8
+        # Pattern matches "| tem |" in Dist column, works even when Vendor column is blank
         set +e
         JAVA8_VERSION=$(sdk list java 2>/dev/null | \
-            grep "tem" | \
+            grep "| tem " | \
             grep "8\." | \
             awk -F'|' '{print $NF}' | \
             sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | \
