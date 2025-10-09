@@ -1,3 +1,4 @@
+From 3f0fef4cb606701f819930f9fc4320b7c7c3a90e Mon Sep 17 00:00:00 2001
 From: Copilot <copilot@github.com>
 Date: Mon, 7 Oct 2024 20:00:00 +0000
 Subject: [PATCH] Optimize syntax-quote to make nil self-evaluating
@@ -8,16 +9,15 @@ self-evaluating forms (keywords, numbers, characters, strings).
 Instead of expanding `nil to (quote nil), it now expands to just nil.
 Both forms evaluate to the same value, but the optimization reduces
 bytecode size and improves macro expansion performance.
-
 ---
  src/jvm/clojure/lang/LispReader.java | 3 ++-
  1 file changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index dc149e2..f9ec5bb 100644
+index 8d7079cf..db45ab01 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
-@@ -1095,7 +1095,8 @@ public static class SyntaxQuoteReader extends AFn{
+@@ -1117,7 +1117,8 @@ public static class SyntaxQuoteReader extends AFn{
  		else if(form instanceof Keyword
  		        || form instanceof Number
  		        || form instanceof Character
@@ -28,5 +28,5 @@ index dc149e2..f9ec5bb 100644
  		else
  			ret = RT.list(Compiler.QUOTE, form);
 -- 
-2.43.0
+2.51.0
 
