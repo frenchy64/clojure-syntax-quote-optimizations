@@ -66,7 +66,7 @@ echo ""
 
 # Convenience feature: Auto-setup Java 8 with sdkman for local usage
 # This checks if sdkman is available and ensures Java 8 is installed and active
-if command -v sdk &> /dev/null; then
+if type sdk &> /dev/null; then
     echo "sdkman detected, checking for Java 8..."
     
     # Look for the latest installed temurin Java 8
