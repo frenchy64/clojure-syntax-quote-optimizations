@@ -66,29 +66,39 @@ echo ""
 
 # Convenience feature: Auto-setup Java 8 with sdkman for local usage
 # This checks if sdkman is available and ensures Java 8 is installed and active
-if [ -f "$HOME/.sdkman/bin/sdkman-init.sh" ]; then
+if command -v sdk &> /dev/null; then
     echo "sdkman detected, checking for Java 8..."
-    source "$HOME/.sdkman/bin/sdkman-init.sh"
     
     # Look for the latest installed temurin Java 8
-    JAVA8_VERSION=""
-    if [ -d "$HOME/.sdkman/candidates/java" ]; then
-        # Find all temurin 8.x versions, sort and pick the latest
-        JAVA8_VERSION=$(ls -1 "$HOME/.sdkman/candidates/java" 2>/dev/null | \
-            grep -E '^8\.[0-9]+\.[0-9]+-tem$' | \
-            sort -V | tail -1)
-    fi
+    JAVA8_VERSION=$(sdk list java 2>/dev/null | \
+        grep -E '^\s+\|.*\| tem\s+\| installed\s+\|' | \
+        grep -E '\| 8\.' | \
+        awk -F'|' '{print $NF}' | \
+        sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | \
+        sort -V | tail -1)
     
     if [ -z "$JAVA8_VERSION" ]; then
         echo "No temurin Java 8 installation found via sdkman."
         echo "Installing latest temurin Java 8..."
         
+        # Find the latest available temurin Java 8
+        JAVA8_VERSION=$(sdk list java 2>/dev/null | \
+            grep -E '^\s+\|.*\| tem\s+\|' | \
+            grep -E '\| 8\.' | \
+            awk -F'|' '{print $NF}' | \
+            sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | \
+            sort -V | tail -1)
+        
+        if [ -z "$JAVA8_VERSION" ]; then
+            echo "ERROR: Could not find temurin Java 8 in sdk list"
+            exit 1
+        fi
+        
         # Install the latest temurin Java 8
-        sdk install java 8.0.432-tem || {
+        sdk install java "$JAVA8_VERSION" || {
             echo "ERROR: Failed to install Java 8 via sdkman"
             exit 1
         }
-        JAVA8_VERSION="8.0.432-tem"
         echo "✓ Installed temurin Java 8: $JAVA8_VERSION"
     else
         echo "✓ Found installed temurin Java 8: $JAVA8_VERSION"
