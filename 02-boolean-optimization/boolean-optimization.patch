@@ -15,7 +15,7 @@ bytecode size and improves macro expansion performance.
  1 file changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079c..f507643 100644
+index 8d7079cf..f507643d 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
 @@ -1117,7 +1117,8 @@ public static class SyntaxQuoteReader extends AFn{

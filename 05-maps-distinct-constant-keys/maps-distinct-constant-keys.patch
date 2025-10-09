@@ -8,7 +8,7 @@ Subject: [PATCH] Optimize syntax-quote for maps with distinct constant keys
  1 file changed, 17 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079c..0c28b3b 100644
+index 8d7079cf..0c28b3b8 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
 @@ -1147,7 +1147,23 @@ public static class SyntaxQuoteReader extends AFn{

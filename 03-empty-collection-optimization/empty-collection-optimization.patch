@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 76f81df0ecb33ad08882e73c142de53c0b8166ea Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 00:00:00 +0000
-Subject: [PATCH] Optimize syntax-quote to make empty collections
+Subject: [PATCH] Optimize syntax-quote to make empty collections 
  self-evaluating
 
 Make empty collections ([], {}, (), #{}) self-evaluating in syntax-quote
@@ -16,7 +16,7 @@ bytecode size and improves macro expansion performance.
  1 file changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079c..e2f6b4a 100644
+index 8d7079cf..730de148 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
 @@ -1117,7 +1117,8 @@ public static class SyntaxQuoteReader extends AFn{
@@ -31,3 +31,4 @@ index 8d7079c..e2f6b4a 100644
  			ret = RT.list(Compiler.QUOTE, form);
 -- 
 2.51.0
+

@@ -1,20 +1,21 @@
-From 42f214fe02a0b3af49bc683ebe481274efb1970a Mon Sep 17 00:00:00 2001
+From 6822bea94dfa14a330e0476536a8b040e6bcc4e8 Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 20:44:11 +0000
 Subject: [PATCH] Optimize syntax-quote for sets with distinct constants
 
 ---
- src/jvm/clojure/lang/LispReader.java | 65 ++++++++++++++++++++++++++++
- 1 file changed, 65 insertions(+)
+ src/jvm/clojure/lang/LispReader.java | 67 +++++++++++++++++++++++++++-
+ 1 file changed, 66 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079cf..fc9b25a4 100644
+index 8d7079cf..a0d87a32 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
 @@ -1101,7 +1101,56 @@ public static class SyntaxQuoteReader extends AFn{
  				}
  			else if(form instanceof IPersistentSet)
  				{
+-				ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentSet) form).seq()))));
 +				ISeq seq = ((IPersistentSet) form).seq();
 +				// Optimize sets with distinct constant elements to use set literals
 +				if(seq != null && seq.count() > 0)
@@ -60,7 +61,7 @@ index 8d7079cf..fc9b25a4 100644
 +						ret = PersistentHashSet.create(RT.toArray(sqExpandFlat(seq)));
 +					}
 +					else
- 				ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
++				ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
 +				}
 +				else
 +					ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
