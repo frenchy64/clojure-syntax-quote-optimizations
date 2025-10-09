@@ -85,8 +85,9 @@ if type sdk &> /dev/null; then
     # which shouldn't cause the script to exit
     set +e
     JAVA8_VERSION=$(sdk list java 2>/dev/null | \
-        grep -E '^\s+\|.*\| tem\s+\| installed\s+\|' | \
-        grep -E '\| 8\.' | \
+        grep "tem" | \
+        grep "installed" | \
+        grep "8\." | \
         awk -F'|' '{print $NF}' | \
         sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | \
         sort -V | tail -1)
@@ -99,8 +100,8 @@ if type sdk &> /dev/null; then
         # Find the latest available temurin Java 8
         set +e
         JAVA8_VERSION=$(sdk list java 2>/dev/null | \
-            grep -E '^\s+\|.*\| tem\s+\|' | \
-            grep -E '\| 8\.' | \
+            grep "tem" | \
+            grep "8\." | \
             awk -F'|' '{print $NF}' | \
             sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | \
             sort -V | tail -1)
