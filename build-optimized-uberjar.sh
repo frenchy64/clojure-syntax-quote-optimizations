@@ -152,7 +152,12 @@ else
 fi
 
 # Assert Check Java version
-java -version 2>&1 | head -1 | grep -q '1\.8\.0' && (echo "Java 8"; exit 0) || (echo "Not Java 8" ; exit 1)
+if java -version 2>&1 | head -1 | grep -q '1\.8\.0'; then
+    echo "Java 8"
+else
+    echo "Not Java 8"
+    exit 1
+fi
 
 # Build the uberjar
 echo "Building uberjar with Maven..."
