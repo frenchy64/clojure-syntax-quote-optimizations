@@ -84,13 +84,7 @@ if type sdk &> /dev/null; then
     # Note: We use 'set +e' here because grep may return non-zero if no matches found,
     # which shouldn't cause the script to exit
     # Pattern: Filter for Java 8, extract Identifier column, check if ends with -tem
-    
-    # Debug: Show raw sdk list java output
     # Note: sdk list uses a pager, so we set PAGER=cat to get raw output
-    echo "Debug: Raw sdk list java output (first 20 lines):"
-    PAGER=cat sdk list java 2>/dev/null | head -20
-    echo "Debug: ---"
-    
     set +e
     JAVA8_VERSION=$(PAGER=cat sdk list java 2>/dev/null | \
         grep "installed" | \
@@ -99,10 +93,7 @@ if type sdk &> /dev/null; then
         sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | \
         grep -- "-tem$" | \
         sort -V | tail -1)
-    SDK_CHECK_EXIT=$?
     set -e
-    
-    echo "Debug: Checked for installed Java 8, found: '${JAVA8_VERSION}'"
     
     if [ -z "$JAVA8_VERSION" ]; then
         echo "No temurin Java 8 installation found via sdkman."
@@ -118,8 +109,6 @@ if type sdk &> /dev/null; then
             grep -- "-tem$" | \
             sort -V | tail -1)
         set -e
-        
-        echo "Debug: Looked for available Java 8 to install, found: '${JAVA8_VERSION}'"
         
         if [ -z "$JAVA8_VERSION" ]; then
             echo "ERROR: Could not find temurin Java 8 in sdk list"
