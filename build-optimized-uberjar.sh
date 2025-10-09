@@ -86,12 +86,13 @@ if type sdk &> /dev/null; then
     # Pattern: Filter for Java 8, extract Identifier column, check if ends with -tem
     
     # Debug: Show raw sdk list java output
+    # Note: sdk list uses a pager, so we set PAGER=cat to get raw output
     echo "Debug: Raw sdk list java output (first 20 lines):"
-    sdk list java 2>/dev/null | head -20
+    PAGER=cat sdk list java 2>/dev/null | head -20
     echo "Debug: ---"
     
     set +e
-    JAVA8_VERSION=$(sdk list java 2>/dev/null | \
+    JAVA8_VERSION=$(PAGER=cat sdk list java 2>/dev/null | \
         grep "installed" | \
         grep "8\." | \
         awk -F'|' '{print $NF}' | \
@@ -110,7 +111,7 @@ if type sdk &> /dev/null; then
         # Find the latest available temurin Java 8
         # Pattern: Filter for Java 8, extract Identifier column, check if ends with -tem
         set +e
-        JAVA8_VERSION=$(sdk list java 2>/dev/null | \
+        JAVA8_VERSION=$(PAGER=cat sdk list java 2>/dev/null | \
             grep "8\." | \
             awk -F'|' '{print $NF}' | \
             sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | \
