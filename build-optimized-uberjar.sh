@@ -66,6 +66,14 @@ echo ""
 
 # Convenience feature: Auto-setup Java 8 with sdkman for local usage
 # This checks if sdkman is available and ensures Java 8 is installed and active
+
+# First, check if sdkman is installed and source it if needed
+if [ -f "$HOME/.sdkman/bin/sdkman-init.sh" ]; then
+    # Source sdkman to make the sdk function available
+    source "$HOME/.sdkman/bin/sdkman-init.sh"
+fi
+
+# Now check if sdk is available (either already in PATH or just sourced)
 if type sdk &> /dev/null; then
     echo "sdkman detected, checking for Java 8..."
     
