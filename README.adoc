@@ -136,6 +136,41 @@ When adding a new optimization:
 
 The goal is to enable asking "go onto the next optimization" and have all infrastructure automatically set up following these established patterns.
 
+== Patch Management
+
+Each optimization directory contains a `patch/` subdirectory with the modified `LispReader.java` file. This makes it easier to update patches by editing the Java file directly rather than working with git diffs.
+
+**To update a patch after modifying the Java file:**
+
+```bash
+# Update a specific optimization
+./update-all-patches.sh "01-nil-optimization"
+
+# Update all optimizations
+./update-all-patches.sh
+```
+
+The script will:
+1. Reset the clojure submodule to the target commit
+2. Copy your modified `LispReader.java` to the submodule
+3. Create a git commit with metadata from the existing patch
+4. Generate the updated patch file
+5. Clean up by resetting the submodule
+
+**Workflow for modifying an optimization:**
+
+```bash
+# 1. Edit the patched file
+vim 01-nil-optimization/patch/LispReader.java
+
+# 2. Regenerate the patch
+./update-all-patches.sh "01-nil-optimization"
+
+# 3. Commit the changes
+git add 01-nil-optimization/
+git commit -m "Update nil optimization patch"
+```
+
 == See Also
 
 - link:01-nil-optimization/README.adoc[Nil Optimization Subproject]
