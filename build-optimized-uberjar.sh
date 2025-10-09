@@ -31,7 +31,7 @@ OUTPUT_DIR="$(mkdir -p "$OUTPUT_DIR" && cd "$OUTPUT_DIR" && pwd)"
 
 # Source the Clojure version from the top-level file
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR" && pwd)"
 source "$REPO_ROOT/CLOJURE_VERSION"
 
 # Create a temporary directory for the build
@@ -48,7 +48,7 @@ echo ""
 
 # Clone Clojure repository
 echo "Cloning Clojure repository..."
-git clone https://github.com/clojure/clojure.git clojure-build
+git clone "${REPO_ROOT}/clojure" clojure-build
 cd clojure-build
 git checkout "$CLOJURE_COMMIT"
 echo "✓ Cloned and checked out commit $CLOJURE_COMMIT"
@@ -63,6 +63,9 @@ fi
 git apply "$PATCH_FILE"
 echo "✓ Patch applied successfully"
 echo ""
+
+# Assert Check Java version
+java -version 2>&1 | head -1 | grep -q '1\.8\.0' && (echo "Java 8"; exit 0) || (echo "Not Java 8" ; exit 1)
 
 # Build the uberjar
 echo "Building uberjar with Maven..."
