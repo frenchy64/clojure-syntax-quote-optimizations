@@ -1,0 +1,31 @@
+From a6dde2e4d6211888aa1f19f7b899f05a6986fa65 Mon Sep 17 00:00:00 2001
+From: GitHub Copilot <copilot@github.com>
+Date: Wed, 8 Oct 2025 07:01:00 +0000
+Subject: [PATCH] Optimize syntax-quote for singleton sets (minimal)
+
+---
+ src/jvm/clojure/lang/LispReader.java | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 8d7079c..d0f2061 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1101,7 +1101,13 @@ public static class SyntaxQuoteReader extends AFn{
+ 				}
+ 			else if(form instanceof IPersistentSet)
+ 				{
+-				ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentSet) form).seq()))));
++				ISeq seq = ((IPersistentSet) form).seq();
++				// `#{a} => #{`a}
++				if(seq != null && seq.count() == 1)
++					ret = PersistentHashSet.create(RT.toArray(syntaxQuote(seq.first())));
++				else
++					ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
++				}
+ 				}
+ 			else if(form instanceof ISeq || form instanceof IPersistentList)
+ 				{
+-- 
+2.51.0
+

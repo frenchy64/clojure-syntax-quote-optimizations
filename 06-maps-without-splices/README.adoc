@@ -1,0 +1,122 @@
+= Maps Without Splices Optimization for Syntax-Quote
+:toc:
+:toclevels: 3
+
+== Overview
+
+This subproject contains the analysis and verification of optimizing syntax-quoted maps that don't have top-level splices (`~@`). Instead of using the verbose `(apply hash-map (seq (concat ...)))` construction, we use more direct forms:
+- Empty maps: `{}`
+- Singleton maps: `{:a x}`  
+- Multi-entry maps: `(hash-map :a x :b y ...)`
+
+This optimization is part of https://clojure.atlassian.net/browse/CLJ-2908[CLJ-2908: Optimize syntax-quote] and was originally proposed in https://clojure.atlassian.net/browse/CLJ-1506[CLJ-1506: Optimize some syntax-quote cases].
+
+== The Optimization
+
+For maps without top-level splices, we can avoid the overhead of `concat`, `seq`, and `apply`:
+
+**Before:**
+- `` `{:a ~x :b ~y} `` => `(apply hash-map (seq (concat (list :a) (list x) (list :b) (list y))))`
+
+**After:**
+- `` `{} `` => `{}`
+- `` `{:a ~x} `` => `{:a x}`
+- `` `{:a ~x :b ~y} `` => `(hash-map :a x :b y)`
+
+**Why this is safe:** When there are no splices, we know exactly what elements will be in the map at compile time. We can therefore use simpler construction methods that avoid runtime sequence operations.
+
+**Constraint:** This optimization only applies when there are no top-level splices (`~@`) in the map.
+
+**Patch file:** `maps-without-splices.patch`
+
+**Target commit:** See `CLOJURE_VERSION` file in repository root (Clojure 1.12.3 release)
+
+**Reference:** This optimization is extracted from the comprehensive work in https://github.com/frenchy64/clojure/pull/41[PR #41]. See `optimize-syntax-quote-full.patch` at the repository root for the complete patch.
+
+== Code Changes
+
+The patch modifies the `IPersistentMap` case in `syntaxQuote()` method of `LispReader.java` (40 lines changed, 39 insertions, 1 deletion):
+
+```java
+ISeq seq = keyvals.seq();
+// `{~@k ~@v} => (apply hash-map (concat k v))
+if(hasSplice(seq))
+    ret = RT.list(APPLY, HASHMAP, RT.cons(CONCAT, sqExpandList(seq)));
+// `{} => {}
+else if(seq == null)
+    ret = PersistentArrayMap.EMPTY;
+// `{k v} => {`k `v}
+else if(seq.count() == 2)
+    ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
+// `{k v ...} => (hash-map k v ...)
+else
+    ret = RT.cons(HASHMAP, sqExpandFlat(seq));
+```
+
+Helper functions added:
+- `hasSplice(ISeq seq)` - Returns true if seq contains `~@`
+- `sqExpandFlat(ISeq seq)` - Flattens seq treating `~@` as `~` for direct calls
+
+== Building the Optimized Uberjar
+
+Use the shared build script:
+
+```bash
+./build-optimized-uberjar.sh [output_dir]
+```
+
+This script:
+1. Clones the official Clojure repository at the target commit
+2. Applies the maps-without-splices.patch
+3. Builds the uberjar with Maven
+4. Strips nondeterministic data and computes SHA256
+5. Saves the result to the output directory
+
+== Experiments
+
+=== 1. Uberjar Comparison
+
+**Directory:** `experiments/uberjar-comparison/`
+
+Measures the overall impact of the maps without splices optimization on the complete Clojure uberjar:
+- Total size reduction
+- Number of affected class files
+- Bytecode instruction differences
+
+**Run:**
+```bash
+cd experiments/uberjar-comparison/
+./01-maps-without-splices.sh
+```
+
+== Hypothesis
+
+Maps without splices are very common in Clojure code:
+- Most syntax-quoted maps don't use splices
+- Multi-entry maps like `` `{:a ~x :b ~y :c ~z} `` appear frequently
+- Configuration maps, destructuring, and keyword arguments
+
+We hypothesize that:
+1. Avoiding `concat`/`seq`/`apply` significantly reduces bytecode size
+2. Using `(hash-map k v ...)` is more direct and efficient
+3. The optimization will show measurable improvements across the entire Clojure codebase
+
+== Results Summary
+
+Results will be documented after running the experiment.
+
+== Comparison with Previous Optimizations
+
+| Aspect | Empty Collections | Singleton Maps | Maps Without Splices |
+|--------|-------------------|----------------|----------------------|
+| Frequency | High | Moderate-High | Very High |
+| Bytecode savings | ~50-150 bytes | ~50-100 bytes | ~40-80 bytes per map |
+| Scope | Empty maps | 1-entry maps | All non-splice maps |
+
+== See Also
+
+- link:../03-empty-collection-optimization/README.adoc[Empty Collection Optimization Subproject]
+- link:../04-singleton-maps/README.adoc[Singleton Maps Optimization Subproject]
+- link:../EXPERIMENT_PLAN.adoc[Complete Experiment Plan]
+- link:../optimize-syntax-quote.md[Technical Motivation Document]
+- https://github.com/frenchy64/clojure/pull/41[PR #41: Full Optimization Implementation]

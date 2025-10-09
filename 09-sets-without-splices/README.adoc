@@ -1,0 +1,127 @@
+= Sets Without Splices Optimization for Syntax-Quote
+:toc:
+:toclevels: 3
+
+== Overview
+
+This subproject contains the analysis and verification of optimizing syntax-quoted sets that don't have top-level splices (`~@`). The optimization detects whether a set contains splices and applies different expansion strategies:
+
+- **Without splices**: Use direct `(hash-set ...)` construction
+- **With splices**: Preserve the original `(apply hash-set (seq (concat ...)))` form
+
+This optimization is part of https://clojure.atlassian.net/browse/CLJ-2908[CLJ-2908: Optimize syntax-quote].
+
+== The Optimization
+
+For sets without top-level splices, we can avoid the overhead of `concat`, `seq`, and `apply`:
+
+**Before:**
+- `` `#{:a :b :c} `` => `(apply hash-set (seq (concat (list :a) (list :b) (list :c))))`
+
+**After (no splices):**
+- `` `#{:a :b :c} `` => `(hash-set :a :b :c)`
+
+**After (with splices - preserved):**
+- `` `#{~@xs :a} `` => `(apply hash-set (seq (concat xs (list :a))))`
+
+**Why this is safe:** The patch checks for the presence of splices. When there are no splices, we know exactly what elements will be in the set at compile time, allowing direct construction. When splices are present, we preserve the original behavior to ensure correct expansion.
+
+**Constraint:** This optimization only applies when there are no top-level splices (`~@`) in the set.
+
+**Patch file:** `sets-without-splices.patch` (18 lines: 17 insertions, 1 deletion)
+
+**Target commit:** See `CLOJURE_VERSION` file in repository root (Clojure 1.12.3 release)
+
+**Reference:** This optimization is extracted from the comprehensive work in https://github.com/frenchy64/clojure/pull/41[PR #41]. See `optimize-syntax-quote-full.patch` at the repository root for the complete patch.
+
+== Code Changes
+
+The patch modifies the `IPersistentSet` case in `syntaxQuote()` method of `LispReader.java`:
+
+```java
+ISeq seq = ((IPersistentSet) form).seq();
+// Check if there are any splices
+boolean hasSplice = false;
+for(ISeq s = seq; s != null; s = s.next())
+    {
+    if(isUnquoteSplicing(s.first()))
+        {
+        hasSplice = true;
+        break;
+        }
+    }
+// `#{~@a b ~@c} => (apply hash-set (seq (concat a [b] c)))
+if(hasSplice)
+    ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
+// `#{a b c} => (hash-set `a `b `c)
+else
+    ret = RT.cons(HASHSET, sqExpandList(seq));
+```
+
+This patch checks if any element in the set is a splice (`~@`). If splices are present, it uses the original verbose form to ensure correct behavior. If no splices are present, it uses the optimized `(hash-set ...)` form.
+
+This uses only existing functions from the codebase (`isUnquoteSplicing` and `sqExpandList`).
+
+== Building the Optimized Uberjar
+
+Use the shared build script:
+
+```bash
+./build-optimized-uberjar.sh [output_dir]
+```
+
+This script:
+1. Clones the official Clojure repository at the target commit
+2. Applies the sets-without-splices.patch
+3. Builds the uberjar with Maven
+4. Strips nondeterministic data and computes SHA256
+5. Saves the result to the output directory
+
+== Experiments
+
+=== 1. Uberjar Comparison
+
+**Directory:** `experiments/uberjar-comparison/`
+
+Measures the overall impact of the sets without splices optimization on the complete Clojure uberjar:
+- Total size reduction
+- Number of affected class files
+- Bytecode instruction differences
+
+**Run:**
+```bash
+cd experiments/uberjar-comparison/
+./01-sets-without-splices.sh
+```
+
+== Hypothesis
+
+Sets without splices appear in Clojure code:
+- Most syntax-quoted sets don't use splices
+- Multi-element sets like `` `#{:a :b :c} `` appear in various contexts
+- Protocol sets, interface sets, and tag sets
+
+We hypothesize that:
+1. Avoiding `concat`/`seq`/`apply` significantly reduces bytecode size
+2. Using `(hash-set e ...)` is more direct and efficient
+3. The optimization will show measurable improvements across the Clojure codebase
+
+== Results Summary
+
+Results will be documented after running the experiment.
+
+== Comparison with Previous Optimizations
+
+| Aspect | Empty Collections | Singleton Sets | Sets Without Splices |
+|--------|-------------------|----------------|----------------------|
+| Frequency | High | Low-Moderate | Moderate |
+| Bytecode savings | ~50-150 bytes | ~50-100 bytes | ~40-80 bytes per set |
+| Scope | Empty sets | 1-element sets | All non-splice sets |
+
+== See Also
+
+- link:../03-empty-collection-optimization/README.adoc[Empty Collection Optimization Subproject]
+- link:../07-singleton-sets/README.adoc[Singleton Sets Optimization Subproject]
+- link:../EXPERIMENT_PLAN.adoc[Complete Experiment Plan]
+- link:../optimize-syntax-quote.md[Technical Motivation Document]
+- https://github.com/frenchy64/clojure/pull/41[PR #41: Full Optimization Implementation]

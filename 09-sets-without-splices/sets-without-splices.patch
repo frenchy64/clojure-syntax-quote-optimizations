@@ -1,0 +1,41 @@
+From f7ef8327cb55bf05f6477a3b6e73e23577d832dc Mon Sep 17 00:00:00 2001
+From: GitHub Copilot <copilot@github.com>
+Date: Wed, 8 Oct 2025 14:50:29 +0000
+Subject: [PATCH] Optimize syntax-quote for sets without splices (corrected)
+
+---
+ src/jvm/clojure/lang/LispReader.java | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 8d7079c..01185c3 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1101,7 +1101,23 @@ public static class SyntaxQuoteReader extends AFn{
+ 				}
+ 			else if(form instanceof IPersistentSet)
+ 				{
+-				ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentSet) form).seq()))));
++				ISeq seq = ((IPersistentSet) form).seq();
++				// Check if there are any splices
++				boolean hasSplice = false;
++				for(ISeq s = seq; s != null; s = s.next())
++					{
++					if(isUnquoteSplicing(s.first()))
++						{
++						hasSplice = true;
++						break;
++						}
++					}
++				// `#{~@a b ~@c} => (apply hash-set (seq (concat a [b] c)))
++				if(hasSplice)
++					ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
++				// `#{a b c} => (hash-set `a `b `c)
++				else
++					ret = RT.cons(HASHSET, sqExpandList(seq));
+ 				}
+ 			else if(form instanceof ISeq || form instanceof IPersistentList)
+ 				{
+-- 
+2.51.0
+
