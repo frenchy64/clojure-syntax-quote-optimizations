@@ -84,6 +84,12 @@ if type sdk &> /dev/null; then
     # Note: We use 'set +e' here because grep may return non-zero if no matches found,
     # which shouldn't cause the script to exit
     # Pattern: Filter for Java 8, extract Identifier column, check if ends with -tem
+    
+    # Debug: Show raw sdk list java output
+    echo "Debug: Raw sdk list java output (first 20 lines):"
+    sdk list java 2>/dev/null | head -20
+    echo "Debug: ---"
+    
     set +e
     JAVA8_VERSION=$(sdk list java 2>/dev/null | \
         grep "installed" | \
