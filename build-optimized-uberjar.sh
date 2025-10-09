@@ -64,6 +64,49 @@ git apply "$PATCH_FILE"
 echo "✓ Patch applied successfully"
 echo ""
 
+# Convenience feature: Auto-setup Java 8 with sdkman for local usage
+# This checks if sdkman is available and ensures Java 8 is installed and active
+if [ -f "$HOME/.sdkman/bin/sdkman-init.sh" ]; then
+    echo "sdkman detected, checking for Java 8..."
+    source "$HOME/.sdkman/bin/sdkman-init.sh"
+    
+    # Look for the latest installed temurin Java 8
+    JAVA8_VERSION=""
+    if [ -d "$HOME/.sdkman/candidates/java" ]; then
+        # Find all temurin 8.x versions, sort and pick the latest
+        JAVA8_VERSION=$(ls -1 "$HOME/.sdkman/candidates/java" 2>/dev/null | \
+            grep -E '^8\.[0-9]+\.[0-9]+-tem$' | \
+            sort -V | tail -1)
+    fi
+    
+    if [ -z "$JAVA8_VERSION" ]; then
+        echo "No temurin Java 8 installation found via sdkman."
+        echo "Installing latest temurin Java 8..."
+        
+        # Install the latest temurin Java 8
+        sdk install java 8.0.432-tem || {
+            echo "ERROR: Failed to install Java 8 via sdkman"
+            exit 1
+        }
+        JAVA8_VERSION="8.0.432-tem"
+        echo "✓ Installed temurin Java 8: $JAVA8_VERSION"
+    else
+        echo "✓ Found installed temurin Java 8: $JAVA8_VERSION"
+    fi
+    
+    # Activate Java 8 for this shell session
+    echo "Activating Java 8 for this build session..."
+    sdk use java "$JAVA8_VERSION" || {
+        echo "ERROR: Failed to activate Java 8"
+        exit 1
+    }
+    echo "✓ Java 8 activated"
+    echo ""
+else
+    echo "sdkman not detected, skipping auto-setup."
+    echo "Please ensure Java 8 is active manually."
+fi
+
 # Assert Check Java version
 java -version 2>&1 | head -1 | grep -q '1\.8\.0' && (echo "Java 8"; exit 0) || (echo "Not Java 8" ; exit 1)
 
