@@ -69,11 +69,11 @@ echo ""
 
 # First, check if sdkman is installed and source it if needed
 if [ -f "$HOME/.sdkman/bin/sdkman-init.sh" ]; then
-    # Temporarily disable unbound variable and exit-on-error checks
-    # (sdkman-init.sh may reference variables like ZSH_VERSION and positional parameters that aren't set)
-    set +eu
+    # Temporarily disable unbound variable check to avoid issues with sdkman-init.sh
+    # (sdkman-init.sh may reference ZSH_VERSION which is not set in bash)
+    set +u
     source "$HOME/.sdkman/bin/sdkman-init.sh"
-    set -eu
+    set -u
 fi
 
 # Now check if sdk is available (either already in PATH or just sourced)
@@ -116,10 +116,17 @@ if type sdk &> /dev/null; then
         fi
         
         # Install the latest temurin Java 8
-        sdk install java "$JAVA8_VERSION" || {
+        # Temporarily disable strict error checking for sdk install
+        # (sdk install scripts may reference unbound variables or positional parameters)
+        set +eu
+        sdk install java "$JAVA8_VERSION"
+        INSTALL_EXIT_CODE=$?
+        set -eu
+        
+        if [ $INSTALL_EXIT_CODE -ne 0 ]; then
             echo "ERROR: Failed to install Java 8 via sdkman"
             exit 1
-        }
+        fi
         echo "✓ Installed temurin Java 8: $JAVA8_VERSION"
     else
         echo "✓ Found installed temurin Java 8: $JAVA8_VERSION"
@@ -127,10 +134,17 @@ if type sdk &> /dev/null; then
     
     # Activate Java 8 for this shell session
     echo "Activating Java 8 for this build session..."
-    sdk use java "$JAVA8_VERSION" || {
+    # Temporarily disable strict error checking for sdk use
+    # (sdk use scripts may reference unbound variables or positional parameters)
+    set +eu
+    sdk use java "$JAVA8_VERSION"
+    USE_EXIT_CODE=$?
+    set -eu
+    
+    if [ $USE_EXIT_CODE -ne 0 ]; then
         echo "ERROR: Failed to activate Java 8"
         exit 1
-    }
+    fi
     echo "✓ Java 8 activated"
     echo ""
 else
