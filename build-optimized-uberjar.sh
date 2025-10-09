@@ -69,11 +69,11 @@ echo ""
 
 # First, check if sdkman is installed and source it if needed
 if [ -f "$HOME/.sdkman/bin/sdkman-init.sh" ]; then
-    # Temporarily disable unbound variable check to avoid issues with sdkman-init.sh
-    # (sdkman-init.sh may reference ZSH_VERSION which is not set in bash)
-    set +u
+    # Temporarily disable unbound variable and exit-on-error checks
+    # (sdkman-init.sh may reference variables like ZSH_VERSION and positional parameters that aren't set)
+    set +eu
     source "$HOME/.sdkman/bin/sdkman-init.sh"
-    set -u
+    set -eu
 fi
 
 # Now check if sdk is available (either already in PATH or just sourced)
