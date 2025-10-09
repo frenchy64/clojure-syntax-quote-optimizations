@@ -8,7 +8,7 @@ Subject: [PATCH] Optimize syntax-quote for sets without splices (corrected)
  1 file changed, 17 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079c..01185c3 100644
+index 8d7079cf..01185c3b 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
 @@ -1101,7 +1101,23 @@ public static class SyntaxQuoteReader extends AFn{

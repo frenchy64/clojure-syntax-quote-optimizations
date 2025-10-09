@@ -8,7 +8,7 @@ Subject: [PATCH] Optimize syntax-quote for singleton sets (minimal)
  1 file changed, 7 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079c..d0f2061 100644
+index 8d7079cf..d0f20610 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
 @@ -1101,7 +1101,13 @@ public static class SyntaxQuoteReader extends AFn{

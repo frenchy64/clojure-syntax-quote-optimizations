@@ -1,14 +1,14 @@
-From edbda5cfc0fdb47cb298e43ebe69d6e01d403bb4 Mon Sep 17 00:00:00 2001
+From 19ce62ad76b9f9eebed506015346db911a664bf8 Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 06:49:08 +0000
 Subject: [PATCH] Optimize syntax-quote for maps without splices
 
 ---
- src/jvm/clojure/lang/LispReader.java | 41 +++++++++++++++++++++++++++-
- 1 file changed, 40 insertions(+), 1 deletion(-)
+ src/jvm/clojure/lang/LispReader.java | 40 +++++++++++++++++++++++++++-
+ 1 file changed, 39 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079cf..8a590e96 100644
+index 8d7079cf..d99f661e 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
 @@ -1093,7 +1093,19 @@ public static class SyntaxQuoteReader extends AFn{
@@ -32,7 +32,7 @@ index 8d7079cf..8a590e96 100644
  				}
  			else if(form instanceof IPersistentVector)
  				{
-@@ -1147,6 +1160,32 @@ public static class SyntaxQuoteReader extends AFn{
+@@ -1147,6 +1159,32 @@ public static class SyntaxQuoteReader extends AFn{
  		return ret.seq();
  	}
  
