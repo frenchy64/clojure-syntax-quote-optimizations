@@ -80,14 +80,13 @@ fi
 if type sdk &> /dev/null; then
     echo "sdkman detected, checking for Java 8..."
     
-    # Look for the latest installed temurin Java 8
+    # Look for any temurin Java 8 (installed or not)
     # Note: We use 'set +e' here because grep may return non-zero if no matches found,
     # which shouldn't cause the script to exit
     # Pattern: Filter for Java 8, extract Identifier column, check if ends with -tem
     # Note: sdk list uses a pager, so we set PAGER=cat to get raw output
     set +e
     JAVA8_VERSION=$(PAGER=cat sdk list java 2>/dev/null | \
-        grep "installed" | \
         grep "8\." | \
         awk -F'|' '{print $NF}' | \
         sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | \
@@ -96,30 +95,30 @@ if type sdk &> /dev/null; then
     set -e
     
     if [ -z "$JAVA8_VERSION" ]; then
-        echo "No temurin Java 8 installation found via sdkman."
-        echo "Installing latest temurin Java 8..."
-        
-        # Find the latest available temurin Java 8
-        # Pattern: Filter for Java 8, extract Identifier column, check if ends with -tem
-        set +e
-        JAVA8_VERSION=$(PAGER=cat sdk list java 2>/dev/null | \
-            grep "8\." | \
-            awk -F'|' '{print $NF}' | \
-            sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | \
-            grep -- "-tem$" | \
-            sort -V | tail -1)
-        set -e
-        
-        if [ -z "$JAVA8_VERSION" ]; then
-            echo "ERROR: Could not find temurin Java 8 in sdk list"
-            exit 1
-        fi
+        echo "ERROR: Could not find temurin Java 8 in sdk list"
+        exit 1
+    fi
+    
+    # Check if this version is already installed
+    set +e
+    INSTALLED_CHECK=$(PAGER=cat sdk list java 2>/dev/null | \
+        grep "installed" | \
+        grep "8\." | \
+        awk -F'|' '{print $NF}' | \
+        sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | \
+        grep -- "-tem$" | \
+        grep "^${JAVA8_VERSION}$")
+    set -e
+    
+    if [ -z "$INSTALLED_CHECK" ]; then
+        echo "Installing temurin Java 8: $JAVA8_VERSION..."
         
         # Install the latest temurin Java 8
         # Temporarily disable strict error checking for sdk install
         # (sdk install scripts may reference unbound variables or positional parameters)
+        # Pass "n" to decline setting as default
         set +eu
-        sdk install java "$JAVA8_VERSION"
+        echo "n" | sdk install java "$JAVA8_VERSION"
         INSTALL_EXIT_CODE=$?
         set -eu
         
