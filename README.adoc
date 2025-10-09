@@ -161,7 +161,7 @@ The script will:
 
 ```bash
 # 1. Edit the patched file
-vim 01-nil-optimization/patch/LispReader.java
+vim 01-nil-optimization/LispReader.java
 
 # 2. Regenerate the patch
 ./update-all-patches.sh "01-nil-optimization"

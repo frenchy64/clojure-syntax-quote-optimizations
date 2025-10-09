@@ -54,7 +54,7 @@ for dir in "${PATCH_DIRS[@]}"; do
     DIR_NAME=$(basename "$dir")
     PATCH_FILE=$(ls "$dir"/*.patch | head -1)
     PATCH_NAME=$(basename "$PATCH_FILE")
-    PATCHED_LISP_READER="$dir/patch/LispReader.java"
+    PATCHED_LISP_READER="$dir/LispReader.java"
     
     echo "==========================================="
     echo "Processing: $DIR_NAME"
