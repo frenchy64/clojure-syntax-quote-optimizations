@@ -1,4 +1,4 @@
-From b38789c21c64cf4af42b626e7e888a37e8ef95b6 Mon Sep 17 00:00:00 2001
+From 16a0bc4e1da5916dca4b1a6724167f90df3d6332 Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 06:49:08 +0000
 Subject: [PATCH] Optimize syntax-quote for maps without splices
@@ -8,7 +8,7 @@ Subject: [PATCH] Optimize syntax-quote for maps without splices
  1 file changed, 17 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079cf..e7058c2a 100644
+index 8d7079cf..79ed65c9 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
 @@ -1093,7 +1093,13 @@ public static class SyntaxQuoteReader extends AFn{
@@ -17,9 +17,9 @@ index 8d7079cf..e7058c2a 100644
  				IPersistentVector keyvals = flattenMap(form);
 -				ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
 +				ISeq seq = keyvals.seq();
-+				// `{~@k ~@v} => (apply hash-map (concat k v))
++				// `{~@k ~@v} => (apply hash-map (seq (concat k v)))
 +				if(hasSplice(seq))
-+					ret = RT.list(APPLY, HASHMAP, RT.cons(CONCAT, sqExpandList(seq)));
++					ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
 +				// `{k v} => (hash-map `k `v ...)
 +				else
 +					ret = RT.cons(HASHMAP, sqExpandList(seq));

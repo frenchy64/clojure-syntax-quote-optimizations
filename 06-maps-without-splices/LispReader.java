@@ -1094,9 +1094,9 @@ public static class SyntaxQuoteReader extends AFn{
 				{
 				IPersistentVector keyvals = flattenMap(form);
 				ISeq seq = keyvals.seq();
-				// `{~@k ~@v} => (apply hash-map (concat k v))
+				// `{~@k ~@v} => (apply hash-map (seq (concat k v)))
 				if(hasSplice(seq))
-					ret = RT.list(APPLY, HASHMAP, RT.cons(CONCAT, sqExpandList(seq)));
+					ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
 				// `{k v} => (hash-map `k `v ...)
 				else
 					ret = RT.cons(HASHMAP, sqExpandList(seq));
