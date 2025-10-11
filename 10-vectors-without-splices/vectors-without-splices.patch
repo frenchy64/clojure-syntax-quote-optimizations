@@ -1,7 +1,7 @@
-From b35707c9ee54efdc70d9364c4ede498bcf0b26a0 Mon Sep 17 00:00:00 2001
+From 7ff6d5522cc4c1c3520f6bf76c20fb1ebb71cf7d Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 14:50:29 +0000
-Subject: [PATCH] Optimize syntax-quote for sets without splices (corrected)
+Subject: [PATCH] Optimize syntax-quote for vectors without splices
 
 ---
  src/jvm/clojure/lang/LispReader.java | 18 +++++++++++++++++-

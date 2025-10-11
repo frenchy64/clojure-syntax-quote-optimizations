@@ -1,7 +1,7 @@
-From 14ea97c83ed323b452a9544ea83ea0c721dea039 Mon Sep 17 00:00:00 2001
+From 362c2c2e470f3bf671b98c523d20fe406eaa7612 Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 14:50:29 +0000
-Subject: [PATCH] Optimize syntax-quote for sets without splices (corrected)
+Subject: [PATCH] Optimize syntax-quote for lists without splices
 
 ---
  src/jvm/clojure/lang/LispReader.java | 19 +++++++++++++++++--
