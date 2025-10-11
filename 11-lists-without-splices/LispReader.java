@@ -1097,25 +1097,24 @@ public static class SyntaxQuoteReader extends AFn{
 				}
 			else if(form instanceof IPersistentVector)
 				{
-+				ISeq seq = ((IPersistentVector) form).seq();
-				// `[~@a ...] => (apply vector (seq (concat ~@a ...)))
-				if(hasSplice(seq))
-					ret = RT.list(APPLY, VECTOR, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentVector) form).seq()))));
-				// `[a ...] => [`a ...]
-				else
-					ret = LazilyPersistentVector.create(sqExpandList(seq));
+				ret = RT.list(APPLY, VECTOR, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentVector) form).seq()))));
 				}
 			else if(form instanceof IPersistentSet)
 				{
-				ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
+				ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentSet) form).seq()))));
 				}
 			else if(form instanceof ISeq || form instanceof IPersistentList)
 				{
 				ISeq seq = RT.seq(form);
+				// `() => ()
 				if(seq == null)
-					ret = RT.cons(LIST,null);
-				else
+					ret = PersistentList.EMPTY;
+				// `(~@a ...) => (seq (concat a ...))
+				else if(hasSplice(seq))
 					ret = RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq)));
+				// `(a ...) => (list `a ...)
+				else
+					ret = RT.cons(LIST, sqExpandList(seq));
 				}
 			else
 				throw new UnsupportedOperationException("Unknown Collection type");

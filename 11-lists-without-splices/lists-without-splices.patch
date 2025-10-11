@@ -1,0 +1,51 @@
+From 14ea97c83ed323b452a9544ea83ea0c721dea039 Mon Sep 17 00:00:00 2001
+From: GitHub Copilot <copilot@github.com>
+Date: Wed, 8 Oct 2025 14:50:29 +0000
+Subject: [PATCH] Optimize syntax-quote for sets without splices (corrected)
+
+---
+ src/jvm/clojure/lang/LispReader.java | 19 +++++++++++++++++--
+ 1 file changed, 17 insertions(+), 2 deletions(-)
+
+diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
+index 8d7079cf..3d6a7c84 100644
+--- a/src/jvm/clojure/lang/LispReader.java
++++ b/src/jvm/clojure/lang/LispReader.java
+@@ -1106,10 +1106,15 @@ public static class SyntaxQuoteReader extends AFn{
+ 			else if(form instanceof ISeq || form instanceof IPersistentList)
+ 				{
+ 				ISeq seq = RT.seq(form);
++				// `() => ()
+ 				if(seq == null)
+-					ret = RT.cons(LIST,null);
+-				else
++					ret = PersistentList.EMPTY;
++				// `(~@a ...) => (seq (concat a ...))
++				else if(hasSplice(seq))
+ 					ret = RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq)));
++				// `(a ...) => (list `a ...)
++				else
++					ret = RT.cons(LIST, sqExpandList(seq));
+ 				}
+ 			else
+ 				throw new UnsupportedOperationException("Unknown Collection type");
+@@ -1132,6 +1137,16 @@ public static class SyntaxQuoteReader extends AFn{
+ 		return ret;
+ 	}
+ 
++	// returns true iff seq contains ~@
++	private static boolean hasSplice(ISeq seq) {
++		for(; seq != null; seq = seq.next())
++			{
++			if(isUnquoteSplicing(seq.first()))
++				return true;
++			}
++		return false;
++	}
++
+ 	private static ISeq sqExpandList(ISeq seq) {
+ 		PersistentVector ret = PersistentVector.EMPTY;
+ 		for(; seq != null; seq = seq.next())
+-- 
+2.51.0
+
