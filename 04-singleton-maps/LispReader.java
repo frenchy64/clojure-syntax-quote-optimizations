@@ -1094,9 +1094,10 @@ public static class SyntaxQuoteReader extends AFn{
 				{
 				IPersistentVector keyvals = flattenMap(form);
 				ISeq seq = keyvals.seq();
-				// Optimize singleton maps: `{:a ~x} => {:a x}
+				// `{a b} => {`a `b}
 				if(seq != null && seq.count() == 2 && !hasSplice(seq))
 					ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
+				// `{~@a ~@b ...} => (apply hash-map (seq (concat a b ...)))
 				else
 					ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
 				}
@@ -1152,7 +1153,6 @@ public static class SyntaxQuoteReader extends AFn{
 		return ret.seq();
 	}
 
-
 	// returns true iff seq contains ~@
 	private static boolean hasSplice(ISeq seq) {
 		for(; seq != null; seq = seq.next())
@@ -1162,21 +1162,6 @@ public static class SyntaxQuoteReader extends AFn{
 			}
 		return false;
 	}
-
-	// Flatten seq treating ~@ as ~, for use with list* etc
-	private static ISeq sqExpandFlat(ISeq seq) {
-		PersistentVector ret = PersistentVector.EMPTY;
-		for(; seq != null; seq = seq.next())
-			{
-			Object item = seq.first();
-			if(isUnquote(item) || isUnquoteSplicing(item))
-				ret = ret.cons(RT.second(item));
-			else
-				ret = ret.cons(syntaxQuote(item));
-			}
-		return ret.seq();
-	}
-
 
 	private static IPersistentVector flattenMap(Object form){
 		IPersistentVector keyvals = PersistentVector.EMPTY;

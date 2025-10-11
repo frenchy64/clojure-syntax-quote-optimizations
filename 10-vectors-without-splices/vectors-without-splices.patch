@@ -1,30 +1,30 @@
-From add5be5a5757169fa6a839865d3adc5c0aa2dad5 Mon Sep 17 00:00:00 2001
+From 7ff6d5522cc4c1c3520f6bf76c20fb1ebb71cf7d Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 14:50:29 +0000
-Subject: [PATCH] Optimize syntax-quote for sets without splices
+Subject: [PATCH] Optimize syntax-quote for vectors without splices
 
 ---
  src/jvm/clojure/lang/LispReader.java | 18 +++++++++++++++++-
  1 file changed, 17 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079cf..bb4858cb 100644
+index 8d7079cf..99e549a5 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
-@@ -1101,7 +1101,13 @@ public static class SyntaxQuoteReader extends AFn{
+@@ -1097,7 +1097,13 @@ public static class SyntaxQuoteReader extends AFn{
+ 				}
+ 			else if(form instanceof IPersistentVector)
+ 				{
+-				ret = RT.list(APPLY, VECTOR, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentVector) form).seq()))));
+++				ISeq seq = ((IPersistentVector) form).seq();
++				// `[~@a ...] => (apply vector (seq (concat ~@a ...)))
++				if(hasSplice(seq))
++					ret = RT.list(APPLY, VECTOR, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentVector) form).seq()))));
++				// `[a ...] => [`a ...]
++				else
++					ret = LazilyPersistentVector.create(sqExpandList(seq));
  				}
  			else if(form instanceof IPersistentSet)
- 				{
--				ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentSet) form).seq()))));
-+				ISeq seq = ((IPersistentSet) form).seq();
-+				// `#{~@a ...} => (apply hash-set (concat ~@a ...))
-+				if(hasSplice(seq))
-+					ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
-+				// `#{a ...} => (hash-set `a `b `c)
-+				else
-+					ret = RT.cons(HASHSET, sqExpandList(seq));
- 				}
- 			else if(form instanceof ISeq || form instanceof IPersistentList)
  				{
 @@ -1132,6 +1138,16 @@ public static class SyntaxQuoteReader extends AFn{
  		return ret;

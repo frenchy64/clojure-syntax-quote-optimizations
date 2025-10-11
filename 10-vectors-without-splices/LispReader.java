@@ -1097,18 +1097,17 @@ public static class SyntaxQuoteReader extends AFn{
 				}
 			else if(form instanceof IPersistentVector)
 				{
-				ret = RT.list(APPLY, VECTOR, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentVector) form).seq()))));
++				ISeq seq = ((IPersistentVector) form).seq();
+				// `[~@a ...] => (apply vector (seq (concat ~@a ...)))
+				if(hasSplice(seq))
+					ret = RT.list(APPLY, VECTOR, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentVector) form).seq()))));
+				// `[a ...] => [`a ...]
+				else
+					ret = LazilyPersistentVector.create(sqExpandList(seq));
 				}
 			else if(form instanceof IPersistentSet)
 				{
-				ISeq seq = ((IPersistentSet) form).seq();
-				// `#{a} => #{`a}
-				if(seq != null && seq.count() == 1 && !hasSplice(seq))
-					ret = PersistentHashSet.create(RT.toArray(syntaxQuote(seq.first())));
-				// `#{~@a ...} => (apply hash-set (seq (concat a ...)))
-				else
-					ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
-				}
+				ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentSet) form).seq()))));
 				}
 			else if(form instanceof ISeq || form instanceof IPersistentList)
 				{
@@ -1139,6 +1138,16 @@ public static class SyntaxQuoteReader extends AFn{
 		return ret;
 	}
 
+	// returns true iff seq contains ~@
+	private static boolean hasSplice(ISeq seq) {
+		for(; seq != null; seq = seq.next())
+			{
+			if(isUnquoteSplicing(seq.first()))
+				return true;
+			}
+		return false;
+	}
+
 	private static ISeq sqExpandList(ISeq seq) {
 		PersistentVector ret = PersistentVector.EMPTY;
 		for(; seq != null; seq = seq.next())
@@ -1152,16 +1161,6 @@ public static class SyntaxQuoteReader extends AFn{
 				ret = ret.cons(RT.list(LIST, syntaxQuote(item)));
 			}
 		return ret.seq();
-	}
-
-	// returns true iff seq contains ~@
-	private static boolean hasSplice(ISeq seq) {
-		for(; seq != null; seq = seq.next())
-			{
-			if(isUnquoteSplicing(seq.first()))
-				return true;
-			}
-		return false;
 	}
 
 	private static IPersistentVector flattenMap(Object form){
