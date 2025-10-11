@@ -21,6 +21,8 @@ if [ $# -lt 2 ]; then
     exit 1
 fi
 
+[ -r ~/.bashrc ] && . ~/.bashrc
+
 OPTIMIZATION_NAME="$1"
 PATCH_FILE="$2"
 OUTPUT_DIR="${3:-./build}"
