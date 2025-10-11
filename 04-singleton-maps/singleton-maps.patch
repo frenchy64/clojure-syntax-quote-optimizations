@@ -1,14 +1,14 @@
-From 98c45c6c675588862deae302ce49fe6ecda0d3d2 Mon Sep 17 00:00:00 2001
+From 047acdb67c5dcec92a60bfb8982359b1c22e9173 Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 05:41:08 +0000
 Subject: [PATCH] Optimize syntax-quote for singleton maps
 
 ---
- src/jvm/clojure/lang/LispReader.java | 33 +++++++++++++++++++++++++++-
- 1 file changed, 32 insertions(+), 1 deletion(-)
+ src/jvm/clojure/lang/LispReader.java | 19 ++++++++++++++++++-
+ 1 file changed, 18 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079cf..3793beb1 100644
+index 8d7079cf..c8975c85 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
 @@ -1093,7 +1093,12 @@ public static class SyntaxQuoteReader extends AFn{
@@ -19,13 +19,13 @@ index 8d7079cf..3793beb1 100644
 +				ISeq seq = keyvals.seq();
 +				// Optimize singleton maps: `{:a ~x} => {:a x}
 +				if(seq != null && seq.count() == 2 && !hasSplice(seq))
-+					ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
++					ret = form;
 +				else
 +					ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
  				}
  			else if(form instanceof IPersistentVector)
  				{
-@@ -1147,6 +1152,32 @@ public static class SyntaxQuoteReader extends AFn{
+@@ -1147,6 +1152,18 @@ public static class SyntaxQuoteReader extends AFn{
  		return ret.seq();
  	}
  
@@ -38,20 +38,6 @@ index 8d7079cf..3793beb1 100644
 +				return true;
 +			}
 +		return false;
-+	}
-+
-+	// Flatten seq treating ~@ as ~, for use with list* etc
-+	private static ISeq sqExpandFlat(ISeq seq) {
-+		PersistentVector ret = PersistentVector.EMPTY;
-+		for(; seq != null; seq = seq.next())
-+			{
-+			Object item = seq.first();
-+			if(isUnquote(item) || isUnquoteSplicing(item))
-+				ret = ret.cons(RT.second(item));
-+			else
-+				ret = ret.cons(syntaxQuote(item));
-+			}
-+		return ret.seq();
 +	}
 +
 +

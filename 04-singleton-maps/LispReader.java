@@ -1096,7 +1096,7 @@ public static class SyntaxQuoteReader extends AFn{
 				ISeq seq = keyvals.seq();
 				// Optimize singleton maps: `{:a ~x} => {:a x}
 				if(seq != null && seq.count() == 2 && !hasSplice(seq))
-					ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
+					ret = form;
 				else
 					ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
 				}
@@ -1161,20 +1161,6 @@ public static class SyntaxQuoteReader extends AFn{
 				return true;
 			}
 		return false;
-	}
-
-	// Flatten seq treating ~@ as ~, for use with list* etc
-	private static ISeq sqExpandFlat(ISeq seq) {
-		PersistentVector ret = PersistentVector.EMPTY;
-		for(; seq != null; seq = seq.next())
-			{
-			Object item = seq.first();
-			if(isUnquote(item) || isUnquoteSplicing(item))
-				ret = ret.cons(RT.second(item));
-			else
-				ret = ret.cons(syntaxQuote(item));
-			}
-		return ret.seq();
 	}
 
 
