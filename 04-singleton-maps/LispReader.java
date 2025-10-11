@@ -1152,7 +1152,6 @@ public static class SyntaxQuoteReader extends AFn{
 		return ret.seq();
 	}
 
-
 	// returns true iff seq contains ~@
 	private static boolean hasSplice(ISeq seq) {
 		for(; seq != null; seq = seq.next())
@@ -1162,7 +1161,6 @@ public static class SyntaxQuoteReader extends AFn{
 			}
 		return false;
 	}
-
 
 	private static IPersistentVector flattenMap(Object form){
 		IPersistentVector keyvals = PersistentVector.EMPTY;
