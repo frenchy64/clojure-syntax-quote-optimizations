@@ -1097,15 +1097,10 @@ public static class SyntaxQuoteReader extends AFn{
 				// `{~@k ~@v} => (apply hash-map (concat k v))
 				if(hasSplice(seq))
 					ret = RT.list(APPLY, HASHMAP, RT.cons(CONCAT, sqExpandList(seq)));
-				// `{} => {}
-				else if(seq == null)
-					ret = PersistentArrayMap.EMPTY;
 				// `{k v} => {`k `v}
-				else if(seq.count() == 2)
-					ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
-				// `{k v ...} => (hash-map k v ...)
 				else
-					ret = RT.cons(HASHMAP, sqExpandFlat(seq));
+				// `{k v ...} => {`k `v ...}
+					ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandList(seq)));
 				}
 			else if(form instanceof IPersistentVector)
 				{
@@ -1168,20 +1163,6 @@ public static class SyntaxQuoteReader extends AFn{
 				return true;
 			}
 		return false;
-	}
-
-	// Flatten seq treating ~@ as ~, for use with list* etc
-	private static ISeq sqExpandFlat(ISeq seq) {
-		PersistentVector ret = PersistentVector.EMPTY;
-		for(; seq != null; seq = seq.next())
-			{
-			Object item = seq.first();
-			if(isUnquote(item) || isUnquoteSplicing(item))
-				ret = ret.cons(RT.second(item));
-			else
-				ret = ret.cons(syntaxQuote(item));
-			}
-		return ret.seq();
 	}
 
 
