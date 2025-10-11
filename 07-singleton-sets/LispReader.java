@@ -1103,7 +1103,7 @@ public static class SyntaxQuoteReader extends AFn{
 				{
 				ISeq seq = ((IPersistentSet) form).seq();
 				// `#{a} => #{`a}
-				if(seq != null && seq.count() == 1)
+				if(seq != null && seq.count() == 1 && !hasSplice(seq))
 					ret = PersistentHashSet.create(RT.toArray(syntaxQuote(seq.first())));
 				else
 					ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
@@ -1151,6 +1151,16 @@ public static class SyntaxQuoteReader extends AFn{
 				ret = ret.cons(RT.list(LIST, syntaxQuote(item)));
 			}
 		return ret.seq();
+	}
+
+	// returns true iff seq contains ~@
+	private static boolean hasSplice(ISeq seq) {
+		for(; seq != null; seq = seq.next())
+			{
+			if(isUnquoteSplicing(seq.first()))
+				return true;
+			}
+		return false;
 	}
 
 	private static IPersistentVector flattenMap(Object form){

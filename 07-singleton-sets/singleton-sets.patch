@@ -1,14 +1,14 @@
-From a6dde2e4d6211888aa1f19f7b899f05a6986fa65 Mon Sep 17 00:00:00 2001
+From 407f1c7e97d72dccfb33f00e3a8c96e2534426a0 Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 07:01:00 +0000
 Subject: [PATCH] Optimize syntax-quote for singleton sets (minimal)
 
 ---
- src/jvm/clojure/lang/LispReader.java | 8 +++++++-
- 1 file changed, 7 insertions(+), 1 deletion(-)
+ src/jvm/clojure/lang/LispReader.java | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079cf..d0f20610 100644
+index 8d7079cf..850da30f 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
 @@ -1101,7 +1101,13 @@ public static class SyntaxQuoteReader extends AFn{
@@ -18,7 +18,7 @@ index 8d7079cf..d0f20610 100644
 -				ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentSet) form).seq()))));
 +				ISeq seq = ((IPersistentSet) form).seq();
 +				// `#{a} => #{`a}
-+				if(seq != null && seq.count() == 1)
++				if(seq != null && seq.count() == 1 && !hasSplice(seq))
 +					ret = PersistentHashSet.create(RT.toArray(syntaxQuote(seq.first())));
 +				else
 +					ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
@@ -26,6 +26,23 @@ index 8d7079cf..d0f20610 100644
  				}
  			else if(form instanceof ISeq || form instanceof IPersistentList)
  				{
+@@ -1147,6 +1153,16 @@ public static class SyntaxQuoteReader extends AFn{
+ 		return ret.seq();
+ 	}
+ 
++	// returns true iff seq contains ~@
++	private static boolean hasSplice(ISeq seq) {
++		for(; seq != null; seq = seq.next())
++			{
++			if(isUnquoteSplicing(seq.first()))
++				return true;
++			}
++		return false;
++	}
++
+ 	private static IPersistentVector flattenMap(Object form){
+ 		IPersistentVector keyvals = PersistentVector.EMPTY;
+ 		for(ISeq s = RT.seq(form); s != null; s = s.next())
 -- 
 2.51.0
 
