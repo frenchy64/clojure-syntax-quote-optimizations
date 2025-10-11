@@ -1102,6 +1102,7 @@ public static class SyntaxQuoteReader extends AFn{
 			else if(form instanceof IPersistentSet)
 				{
 				ISeq seq = ((IPersistentSet) form).seq();
+				// `#{~@a ...} => (apply hash-set (concat ~@a ...))
 				if(hasSplice(seq))
 					ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
 				// `#{a ...} => (hash-set `a `b `c)
