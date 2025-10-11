@@ -1094,7 +1094,7 @@ public static class SyntaxQuoteReader extends AFn{
 				{
 				IPersistentVector keyvals = flattenMap(form);
 				ISeq seq = keyvals.seq();
-				// `{:a ~x} => {:a x}
+				// `{a b} => {`a `b}
 				if(seq != null && seq.count() == 2 && !hasSplice(seq))
 					ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
 				// `{~@a ~@b ...} => (apply hash-map (seq (concat a b ...)))

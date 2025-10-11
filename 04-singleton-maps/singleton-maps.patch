@@ -1,4 +1,4 @@
-From edeb1fc3997dbef0dbc066d57076b26ceabdb4a0 Mon Sep 17 00:00:00 2001
+From 514ab7267c0ff0a5eba5073726418bde9758b64a Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 05:41:08 +0000
 Subject: [PATCH] Optimize syntax-quote for singleton maps
@@ -8,7 +8,7 @@ Subject: [PATCH] Optimize syntax-quote for singleton maps
  1 file changed, 17 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079cf..5d5963f7 100644
+index 8d7079cf..f164b9b8 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
 @@ -1093,7 +1093,13 @@ public static class SyntaxQuoteReader extends AFn{
@@ -17,7 +17,7 @@ index 8d7079cf..5d5963f7 100644
  				IPersistentVector keyvals = flattenMap(form);
 -				ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
 +				ISeq seq = keyvals.seq();
-+				// `{:a ~x} => {:a x}
++				// `{a b} => {`a `b}
 +				if(seq != null && seq.count() == 2 && !hasSplice(seq))
 +					ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandFlat(seq)));
 +				// `{~@a ~@b ...} => (apply hash-map (seq (concat a b ...)))
