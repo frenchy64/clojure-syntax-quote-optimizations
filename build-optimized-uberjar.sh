@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+# Note: if calling from fish shell or non-bash, first start bash to load ~/.bashrc to load sdkman.
+# TODO: fix this so sdkman is sourced correctly and so script is callable from fish.
+#
 # Generic script to build an optimized Clojure uberjar with a specified optimization patch.
 #
 # Usage: ./build-optimized-uberjar.sh <optimization_name> <patch_file> [output_dir]
@@ -20,8 +23,6 @@ if [ $# -lt 2 ]; then
     echo "  output_dir: Optional output directory (defaults to ./build)"
     exit 1
 fi
-
-[ -r ~/.bashrc ] && . ~/.bashrc
 
 OPTIMIZATION_NAME="$1"
 PATCH_FILE="$2"
