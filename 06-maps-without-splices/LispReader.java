@@ -1097,10 +1097,9 @@ public static class SyntaxQuoteReader extends AFn{
 				// `{~@k ~@v} => (apply hash-map (concat k v))
 				if(hasSplice(seq))
 					ret = RT.list(APPLY, HASHMAP, RT.cons(CONCAT, sqExpandList(seq)));
-				// `{k v} => {`k `v}
+				// `{k v} => (hash-map `k `v ...)
 				else
-				// `{k v ...} => {`k `v ...}
-					ret = PersistentArrayMap.createAsIfByAssoc(RT.toArray(sqExpandList(seq)));
+					ret = RT.cons(HASHMAP, sqExpandList(seq));
 				}
 			else if(form instanceof IPersistentVector)
 				{
@@ -1154,7 +1153,6 @@ public static class SyntaxQuoteReader extends AFn{
 		return ret.seq();
 	}
 
-
 	// returns true iff seq contains ~@
 	private static boolean hasSplice(ISeq seq) {
 		for(; seq != null; seq = seq.next())
@@ -1164,7 +1162,6 @@ public static class SyntaxQuoteReader extends AFn{
 			}
 		return false;
 	}
-
 
 	private static IPersistentVector flattenMap(Object form){
 		IPersistentVector keyvals = PersistentVector.EMPTY;

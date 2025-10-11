@@ -1102,20 +1102,9 @@ public static class SyntaxQuoteReader extends AFn{
 			else if(form instanceof IPersistentSet)
 				{
 				ISeq seq = ((IPersistentSet) form).seq();
-				// Check if there are any splices
-				boolean hasSplice = false;
-				for(ISeq s = seq; s != null; s = s.next())
-					{
-					if(isUnquoteSplicing(s.first()))
-						{
-						hasSplice = true;
-						break;
-						}
-					}
-				// `#{~@a b ~@c} => (apply hash-set (seq (concat a [b] c)))
-				if(hasSplice)
+				if(hasSplice(seq))
 					ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
-				// `#{a b c} => (hash-set `a `b `c)
+				// `#{a ...} => (hash-set `a `b `c)
 				else
 					ret = RT.cons(HASHSET, sqExpandList(seq));
 				}
@@ -1146,6 +1135,16 @@ public static class SyntaxQuoteReader extends AFn{
 				return RT.list(WITH_META, ret, syntaxQuote(((IObj) form).meta()));
 			}
 		return ret;
+	}
+
+	// returns true iff seq contains ~@
+	private static boolean hasSplice(ISeq seq) {
+		for(; seq != null; seq = seq.next())
+			{
+			if(isUnquoteSplicing(seq.first()))
+				return true;
+			}
+		return false;
 	}
 
 	private static ISeq sqExpandList(ISeq seq) {

@@ -1,41 +1,47 @@
-From f7ef8327cb55bf05f6477a3b6e73e23577d832dc Mon Sep 17 00:00:00 2001
+From 2141d6f5edd09a6bd9eb2ac65ddc02e4f2cee5e1 Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 14:50:29 +0000
 Subject: [PATCH] Optimize syntax-quote for sets without splices (corrected)
 
 ---
- src/jvm/clojure/lang/LispReader.java | 18 +++++++++++++++++-
- 1 file changed, 17 insertions(+), 1 deletion(-)
+ src/jvm/clojure/lang/LispReader.java | 17 ++++++++++++++++-
+ 1 file changed, 16 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079cf..01185c3b 100644
+index 8d7079cf..799b75a6 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
-@@ -1101,7 +1101,23 @@ public static class SyntaxQuoteReader extends AFn{
+@@ -1101,7 +1101,12 @@ public static class SyntaxQuoteReader extends AFn{
  				}
  			else if(form instanceof IPersistentSet)
  				{
 -				ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentSet) form).seq()))));
 +				ISeq seq = ((IPersistentSet) form).seq();
-+				// Check if there are any splices
-+				boolean hasSplice = false;
-+				for(ISeq s = seq; s != null; s = s.next())
-+					{
-+					if(isUnquoteSplicing(s.first()))
-+						{
-+						hasSplice = true;
-+						break;
-+						}
-+					}
-+				// `#{~@a b ~@c} => (apply hash-set (seq (concat a [b] c)))
-+				if(hasSplice)
++				if(hasSplice(seq))
 +					ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
-+				// `#{a b c} => (hash-set `a `b `c)
++				// `#{a ...} => (hash-set `a `b `c)
 +				else
 +					ret = RT.cons(HASHSET, sqExpandList(seq));
  				}
  			else if(form instanceof ISeq || form instanceof IPersistentList)
  				{
+@@ -1132,6 +1137,16 @@ public static class SyntaxQuoteReader extends AFn{
+ 		return ret;
+ 	}
+ 
++	// returns true iff seq contains ~@
++	private static boolean hasSplice(ISeq seq) {
++		for(; seq != null; seq = seq.next())
++			{
++			if(isUnquoteSplicing(seq.first()))
++				return true;
++			}
++		return false;
++	}
++
+ 	private static ISeq sqExpandList(ISeq seq) {
+ 		PersistentVector ret = PersistentVector.EMPTY;
+ 		for(; seq != null; seq = seq.next())
 -- 
 2.51.0
 
