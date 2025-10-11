@@ -1,17 +1,17 @@
-From 407f1c7e97d72dccfb33f00e3a8c96e2534426a0 Mon Sep 17 00:00:00 2001
+From 3bd8c22e2445f5ef50c38319ca7901f3658fd75b Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 07:01:00 +0000
 Subject: [PATCH] Optimize syntax-quote for singleton sets (minimal)
 
 ---
- src/jvm/clojure/lang/LispReader.java | 18 +++++++++++++++++-
- 1 file changed, 17 insertions(+), 1 deletion(-)
+ src/jvm/clojure/lang/LispReader.java | 19 ++++++++++++++++++-
+ 1 file changed, 18 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079cf..850da30f 100644
+index 8d7079cf..4f54829a 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
-@@ -1101,7 +1101,13 @@ public static class SyntaxQuoteReader extends AFn{
+@@ -1101,7 +1101,14 @@ public static class SyntaxQuoteReader extends AFn{
  				}
  			else if(form instanceof IPersistentSet)
  				{
@@ -20,13 +20,14 @@ index 8d7079cf..850da30f 100644
 +				// `#{a} => #{`a}
 +				if(seq != null && seq.count() == 1 && !hasSplice(seq))
 +					ret = PersistentHashSet.create(RT.toArray(syntaxQuote(seq.first())));
++				// `#{~@a ...} => (apply hash-set (seq (concat a ...)))
 +				else
 +					ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
 +				}
  				}
  			else if(form instanceof ISeq || form instanceof IPersistentList)
  				{
-@@ -1147,6 +1153,16 @@ public static class SyntaxQuoteReader extends AFn{
+@@ -1147,6 +1154,16 @@ public static class SyntaxQuoteReader extends AFn{
  		return ret.seq();
  	}
  

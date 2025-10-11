@@ -1105,6 +1105,7 @@ public static class SyntaxQuoteReader extends AFn{
 				// `#{a} => #{`a}
 				if(seq != null && seq.count() == 1 && !hasSplice(seq))
 					ret = PersistentHashSet.create(RT.toArray(syntaxQuote(seq.first())));
+				// `#{~@a ...} => (apply hash-set (seq (concat a ...)))
 				else
 					ret = RT.list(APPLY, HASHSET, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(seq))));
 				}
