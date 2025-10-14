@@ -3,6 +3,13 @@ From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 05:41:08 +0000
 Subject: [PATCH] Optimize syntax-quote for singleton maps
 
+Optimize syntax-quoted maps with exactly one key-value pair without
+splices to use map literals instead of (apply hash-map ...).
+
+For example: `{:a 1} => {:a 1} instead of (apply hash-map ...)
+
+Note: This patch depends on sqExpandFlat helper from patch 05.
+
 ---
  src/jvm/clojure/lang/LispReader.java | 18 +++++++++++++++++-
  1 file changed, 17 insertions(+), 1 deletion(-)

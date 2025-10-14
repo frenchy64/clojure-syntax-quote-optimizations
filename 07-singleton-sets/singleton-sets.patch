@@ -1,7 +1,12 @@
 From 3bd8c22e2445f5ef50c38319ca7901f3658fd75b Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 07:01:00 +0000
-Subject: [PATCH] Optimize syntax-quote for singleton sets (minimal)
+Subject: [PATCH] Optimize syntax-quote for singleton sets
+
+Optimize syntax-quoted sets with exactly one element without splices
+to use set literals instead of (apply hash-set ...).
+
+For example: `#{:a} => #{:a} instead of (apply hash-set ...)
 
 ---
  src/jvm/clojure/lang/LispReader.java | 19 ++++++++++++++++++-

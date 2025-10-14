@@ -3,6 +3,12 @@ From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 14:50:29 +0000
 Subject: [PATCH] Optimize syntax-quote for vectors without splices
 
+Optimize syntax-quoted vectors without unquote-splicing to use vector
+literals instead of (apply vector (seq (concat ...))).
+
+For example: `[1 ~x 3] => [1 x 3]
+instead of (apply vector (seq (concat (list 1) (list x) (list 3))))
+
 ---
  src/jvm/clojure/lang/LispReader.java | 18 +++++++++++++++++-
  1 file changed, 17 insertions(+), 1 deletion(-)

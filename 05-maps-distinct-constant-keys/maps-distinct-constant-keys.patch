@@ -1,7 +1,11 @@
 From 6bc1cb974c2d0ce06109bb3ed1d4a4c49d93b7ed Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 22:45:26 +0000
-Subject: [PATCH] Optimize syntax-quote for maps with distinct constant keys
+Subject: [PATCH] Add sqExpandFlat helper for map/set literal optimizations
+
+Add sqExpandFlat helper function to expand sequences for map and set
+literals without wrapping unquoted values in lists. This infrastructure
+is used by singleton maps and sets with distinct constants optimizations.
 
 ---
  src/jvm/clojure/lang/LispReader.java | 18 +++++++++++++++++-
