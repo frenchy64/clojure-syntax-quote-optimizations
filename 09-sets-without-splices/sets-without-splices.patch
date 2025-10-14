@@ -3,6 +3,12 @@ From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 14:50:29 +0000
 Subject: [PATCH] Optimize syntax-quote for sets without splices
 
+Optimize syntax-quoted sets without unquote-splicing to use (hash-set ...)
+instead of (apply hash-set (seq (concat ...))).
+
+For example: `#{:a ~x} => (hash-set :a x)
+instead of (apply hash-set (seq (concat (list :a) (list x))))
+
 ---
  src/jvm/clojure/lang/LispReader.java | 18 +++++++++++++++++-
  1 file changed, 17 insertions(+), 1 deletion(-)

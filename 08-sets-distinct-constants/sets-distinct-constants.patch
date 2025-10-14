@@ -3,6 +3,13 @@ From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 20:44:11 +0000
 Subject: [PATCH] Optimize syntax-quote for sets with distinct constants
 
+Optimize syntax-quoted sets where all elements are distinct constant
+values (keywords, numbers, strings, booleans, characters, nil) to use
+set literals instead of (apply hash-set ...).
+
+For example: `#{:a :b :c} => #{:a :b :c}
+instead of (apply hash-set (seq (concat ...)))
+
 ---
  src/jvm/clojure/lang/LispReader.java | 67 +++++++++++++++++++++++++++-
  1 file changed, 66 insertions(+), 1 deletion(-)

@@ -3,6 +3,12 @@ From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 06:49:08 +0000
 Subject: [PATCH] Optimize syntax-quote for maps without splices
 
+Optimize syntax-quoted maps without unquote-splicing to use (hash-map ...)
+instead of (apply hash-map (seq (concat ...))).
+
+For example: `{:a ~x :b ~y} => (hash-map :a x :b y)
+instead of (apply hash-map (seq (concat (list :a x) (list :b y))))
+
 ---
  src/jvm/clojure/lang/LispReader.java | 18 +++++++++++++++++-
  1 file changed, 17 insertions(+), 1 deletion(-)
