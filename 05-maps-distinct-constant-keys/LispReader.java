@@ -1093,7 +1093,66 @@ public static class SyntaxQuoteReader extends AFn{
 			else if(form instanceof IPersistentMap)
 				{
 				IPersistentVector keyvals = flattenMap(form);
+				// Optimize maps with distinct constant keys to use map literals
+				if(keyvals.count() > 0)
+				{
+					boolean hasDistinctConstantKeys = true;
+					IPersistentSet seenKeys = PersistentHashSet.EMPTY;
+
+					// Check if all keys and values are self-evaluating constants
+					// and that no two keys are equivalent
+					for(int i = 0; i < keyvals.count(); i += 2)
+					{
+						Object key = keyvals.nth(i);
+						Object val = keyvals.nth(i + 1);
+						
+						// Test for self-evaluating constants (key)
+						if(!(key instanceof Keyword) &&
+						   !(key == null) &&
+						   !(key instanceof Number) &&
+						   !(key instanceof String) &&
+						   !(key instanceof Boolean) &&
+						   !(key instanceof Character))
+						{
+							hasDistinctConstantKeys = false;
+							break;
+						}
+						
+						// Test for self-evaluating constants (value)
+						if(!(val instanceof Keyword) &&
+						   !(val == null) &&
+						   !(val instanceof Number) &&
+						   !(val instanceof String) &&
+						   !(val instanceof Boolean) &&
+						   !(val instanceof Character))
+						{
+							hasDistinctConstantKeys = false;
+							break;
+						}
+
+						// Check for duplicate keys
+						if(seenKeys.contains(key))
+						{
+							hasDistinctConstantKeys = false;
+							break;
+						}
+						else
+						{
+							seenKeys = (IPersistentSet) seenKeys.cons(key);
+						}
+					}
+
+					if(hasDistinctConstantKeys)
+					{
+						// All keys are distinct constants, expand to map literal
+						ret = PersistentArrayMap.create(RT.toArray(sqExpandFlat(keyvals.seq())));
+					}
+					else
 				ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
+				}
+				else
+					ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
+
 				}
 			else if(form instanceof IPersistentVector)
 				{
@@ -1148,22 +1207,22 @@ public static class SyntaxQuoteReader extends AFn{
 	}
 
 	// Helper function for flattening seq for map/set literals
-// Expands unquotes directly (no wrapping in list)
-private static ISeq sqExpandFlat(ISeq seq) {
-PersistentVector ret = PersistentVector.EMPTY;
-for(; seq != null; seq = seq.next())
-{
-Object item = seq.first();
-if(isUnquote(item) || isUnquoteSplicing(item))
-ret = ret.cons(RT.second(item));
-else
-ret = ret.cons(syntaxQuote(item));
-}
-return ret.seq();
-}
+	// Expands unquotes directly (no wrapping in list)
+	private static ISeq sqExpandFlat(ISeq seq) {
+		PersistentVector ret = PersistentVector.EMPTY;
+		for(; seq != null; seq = seq.next())
+			{
+			Object item = seq.first();
+			if(isUnquote(item) || isUnquoteSplicing(item))
+				ret = ret.cons(RT.second(item));
+			else
+				ret = ret.cons(syntaxQuote(item));
+			}
+		return ret.seq();
+	}
 
 
-private static IPersistentVector flattenMap(Object form){
+	private static IPersistentVector flattenMap(Object form){
 		IPersistentVector keyvals = PersistentVector.EMPTY;
 		for(ISeq s = RT.seq(form); s != null; s = s.next())
 			{
