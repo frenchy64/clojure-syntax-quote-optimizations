@@ -1,4 +1,4 @@
-From 1b2a9d794cec33d5231e51a44411d9f5dd2ae007 Mon Sep 17 00:00:00 2001
+From b629f96f4140e1252498076d199f7ba45892cbff Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 22:45:26 +0000
 Subject: [PATCH] Optimize syntax-quote for maps with distinct constant keys
@@ -10,83 +10,60 @@ characters, nil) to use map literals instead of (apply hash-map ...).
 For example: `{:a 1 :b 2} => {:a 1 :b 2}
 instead of (apply hash-map (seq (concat ...)))
 ---
- src/jvm/clojure/lang/LispReader.java | 76 ++++++++++++++++++++++++++++
- 1 file changed, 76 insertions(+)
+ src/jvm/clojure/lang/LispReader.java | 55 +++++++++++++++++++++++++++-
+ 1 file changed, 54 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079cf..d073b8c7 100644
+index 8d7079cf..e80acbaf 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
-@@ -1093,8 +1093,68 @@ public static class SyntaxQuoteReader extends AFn{
+@@ -1093,7 +1093,44 @@ public static class SyntaxQuoteReader extends AFn{
  			else if(form instanceof IPersistentMap)
  				{
  				IPersistentVector keyvals = flattenMap(form);
+-				ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
 +				// Optimize maps with distinct constant keys to use map literals
 +				if(keyvals.count() > 0)
 +				{
 +					boolean hasDistinctConstantKeys = true;
 +					IPersistentSet seenKeys = PersistentHashSet.EMPTY;
 +
-+					// Check if all keys and values are self-evaluating constants
-+					// and that no two keys are equivalent
++					// Check if all keys are self-evaluating constants,
++					// values are not unquote-splicing, and no two keys are equivalent
 +					for(int i = 0; i < keyvals.count(); i += 2)
 +					{
 +						Object key = keyvals.nth(i);
 +						Object val = keyvals.nth(i + 1);
 +						
-+						// Test for self-evaluating constants (key)
-+						if(!(key instanceof Keyword) &&
-+						   !(key == null) &&
-+						   !(key instanceof Number) &&
-+						   !(key instanceof String) &&
-+						   !(key instanceof Boolean) &&
-+						   !(key instanceof Character))
++						// Test for self-evaluating constant keys, non-splicing values, and distinct keys
++						if((!(key instanceof Keyword) &&
++						    !(key == null) &&
++						    !(key instanceof Number) &&
++						    !(key instanceof String) &&
++						    !(key instanceof Boolean) &&
++						    !(key instanceof Character)) ||
++						   isUnquoteSplicing(val) ||
++						   seenKeys.contains(key))
 +						{
 +							hasDistinctConstantKeys = false;
 +							break;
 +						}
-+						
-+						// Test for self-evaluating constants (value)
-+						if(isUnquoteSplicing(val) ||
-+						   (!(val instanceof Keyword) &&
-+						   !(val == null) &&
-+						   !(val instanceof Number) &&
-+						   !(val instanceof String) &&
-+						   !(val instanceof Boolean) &&
-+						   !(val instanceof Character)))
-+						{
-+							hasDistinctConstantKeys = false;
-+							break;
-+						}
-+
-+						// Check for duplicate keys
-+						if(seenKeys.contains(key))
-+						{
-+							hasDistinctConstantKeys = false;
-+							break;
-+						}
-+						else
-+						{
-+							seenKeys = (IPersistentSet) seenKeys.cons(key);
-+						}
++						seenKeys = (IPersistentSet) seenKeys.cons(key);
 +					}
 +
 +					if(hasDistinctConstantKeys)
-+					{
 +						// All keys are distinct constants, expand to map literal
 +						ret = PersistentArrayMap.create(RT.toArray(sqExpandFlat(keyvals.seq())));
-+					}
 +					else
- 				ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
- 				}
++						ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
++				}
 +				else
 +					ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
 +
-+				}
+ 				}
  			else if(form instanceof IPersistentVector)
  				{
- 				ret = RT.list(APPLY, VECTOR, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentVector) form).seq()))));
-@@ -1147,6 +1207,22 @@ public static class SyntaxQuoteReader extends AFn{
+@@ -1147,6 +1184,22 @@ public static class SyntaxQuoteReader extends AFn{
  		return ret.seq();
  	}
  

@@ -1099,57 +1099,34 @@ public static class SyntaxQuoteReader extends AFn{
 					boolean hasDistinctConstantKeys = true;
 					IPersistentSet seenKeys = PersistentHashSet.EMPTY;
 
-					// Check if all keys and values are self-evaluating constants
-					// and that no two keys are equivalent
+					// Check if all keys are self-evaluating constants,
+					// values are not unquote-splicing, and no two keys are equivalent
 					for(int i = 0; i < keyvals.count(); i += 2)
 					{
 						Object key = keyvals.nth(i);
 						Object val = keyvals.nth(i + 1);
 						
-						// Test for self-evaluating constants (key)
-						if(!(key instanceof Keyword) &&
-						   !(key == null) &&
-						   !(key instanceof Number) &&
-						   !(key instanceof String) &&
-						   !(key instanceof Boolean) &&
-						   !(key instanceof Character))
+						// Test for self-evaluating constant keys, non-splicing values, and distinct keys
+						if((!(key instanceof Keyword) &&
+						    !(key == null) &&
+						    !(key instanceof Number) &&
+						    !(key instanceof String) &&
+						    !(key instanceof Boolean) &&
+						    !(key instanceof Character)) ||
+						   isUnquoteSplicing(val) ||
+						   seenKeys.contains(key))
 						{
 							hasDistinctConstantKeys = false;
 							break;
 						}
-						
-						// Test for self-evaluating constants (value)
-						if(isUnquoteSplicing(val) ||
-						   (!(val instanceof Keyword) &&
-						   !(val == null) &&
-						   !(val instanceof Number) &&
-						   !(val instanceof String) &&
-						   !(val instanceof Boolean) &&
-						   !(val instanceof Character)))
-						{
-							hasDistinctConstantKeys = false;
-							break;
-						}
-
-						// Check for duplicate keys
-						if(seenKeys.contains(key))
-						{
-							hasDistinctConstantKeys = false;
-							break;
-						}
-						else
-						{
-							seenKeys = (IPersistentSet) seenKeys.cons(key);
-						}
+						seenKeys = (IPersistentSet) seenKeys.cons(key);
 					}
 
 					if(hasDistinctConstantKeys)
-					{
 						// All keys are distinct constants, expand to map literal
 						ret = PersistentArrayMap.create(RT.toArray(sqExpandFlat(keyvals.seq())));
-					}
 					else
-				ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
+						ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
 				}
 				else
 					ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
