@@ -1,5 +1,5 @@
 ;; Minimal expressions most likely to compile differently with maps-distinct-constant-keys optimization patch
-;; This patch optimizes maps with distinct constant keys and constant values to use map literals
+;; This patch optimizes maps with distinct constant keys and non-unquote-splicing values to use map literals
 
 `{:a 1 :b 2}
 `{:x 1 :y 2 :z 3}
