@@ -1,45 +1,91 @@
-From 6bc1cb974c2d0ce06109bb3ed1d4a4c49d93b7ed Mon Sep 17 00:00:00 2001
+From b629f96f4140e1252498076d199f7ba45892cbff Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 22:45:26 +0000
-Subject: [PATCH] Add sqExpandFlat helper for map/set literal optimizations
+Subject: [PATCH] Optimize syntax-quote for maps with distinct constant keys
 
-Add sqExpandFlat helper function to expand sequences for map and set
-literals without wrapping unquoted values in lists. This infrastructure
-is used by singleton maps and sets with distinct constants optimizations.
+Optimize syntax-quoted maps where all keys are distinct constants and
+all values are constant values (keywords, numbers, strings, booleans,
+characters, nil) to use map literals instead of (apply hash-map ...).
 
+For example: `{:a 1 :b 2} => {:a 1 :b 2}
+instead of (apply hash-map (seq (concat ...)))
 ---
- src/jvm/clojure/lang/LispReader.java | 18 +++++++++++++++++-
- 1 file changed, 17 insertions(+), 1 deletion(-)
+ src/jvm/clojure/lang/LispReader.java | 55 +++++++++++++++++++++++++++-
+ 1 file changed, 54 insertions(+), 1 deletion(-)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079cf..0c28b3b8 100644
+index 8d7079cf..e80acbaf 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
-@@ -1147,7 +1147,23 @@ public static class SyntaxQuoteReader extends AFn{
+@@ -1093,7 +1093,44 @@ public static class SyntaxQuoteReader extends AFn{
+ 			else if(form instanceof IPersistentMap)
+ 				{
+ 				IPersistentVector keyvals = flattenMap(form);
+-				ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
++				// Optimize maps with distinct constant keys to use map literals
++				if(keyvals.count() > 0)
++				{
++					boolean hasDistinctConstantKeys = true;
++					IPersistentSet seenKeys = PersistentHashSet.EMPTY;
++
++					// Check if all keys are self-evaluating constants,
++					// values are not unquote-splicing, and no two keys are equivalent
++					for(int i = 0; i < keyvals.count(); i += 2)
++					{
++						Object key = keyvals.nth(i);
++						Object val = keyvals.nth(i + 1);
++						
++						// Test for self-evaluating constant keys, non-splicing values, and distinct keys
++						if((!(key instanceof Keyword) &&
++						    !(key == null) &&
++						    !(key instanceof Number) &&
++						    !(key instanceof String) &&
++						    !(key instanceof Boolean) &&
++						    !(key instanceof Character)) ||
++						   isUnquoteSplicing(val) ||
++						   seenKeys.contains(key))
++						{
++							hasDistinctConstantKeys = false;
++							break;
++						}
++						seenKeys = (IPersistentSet) seenKeys.cons(key);
++					}
++
++					if(hasDistinctConstantKeys)
++						// All keys are distinct constants, expand to map literal
++						ret = PersistentArrayMap.create(RT.toArray(sqExpandFlat(keyvals.seq())));
++					else
++						ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
++				}
++				else
++					ret = RT.list(APPLY, HASHMAP, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(keyvals.seq()))));
++
+ 				}
+ 			else if(form instanceof IPersistentVector)
+ 				{
+@@ -1147,6 +1184,22 @@ public static class SyntaxQuoteReader extends AFn{
  		return ret.seq();
  	}
  
--	private static IPersistentVector flattenMap(Object form){
 +	// Helper function for flattening seq for map/set literals
-+// Expands unquotes directly (no wrapping in list)
-+private static ISeq sqExpandFlat(ISeq seq) {
-+PersistentVector ret = PersistentVector.EMPTY;
-+for(; seq != null; seq = seq.next())
-+{
-+Object item = seq.first();
-+if(isUnquote(item) || isUnquoteSplicing(item))
-+ret = ret.cons(RT.second(item));
-+else
-+ret = ret.cons(syntaxQuote(item));
-+}
-+return ret.seq();
-+}
++	// Expands unquotes directly (no wrapping in list)
++	private static ISeq sqExpandFlat(ISeq seq) {
++		PersistentVector ret = PersistentVector.EMPTY;
++		for(; seq != null; seq = seq.next())
++			{
++			Object item = seq.first();
++			if(isUnquote(item) || isUnquoteSplicing(item))
++				ret = ret.cons(RT.second(item));
++			else
++				ret = ret.cons(syntaxQuote(item));
++			}
++		return ret.seq();
++	}
 +
 +
-+private static IPersistentVector flattenMap(Object form){
+ 	private static IPersistentVector flattenMap(Object form){
  		IPersistentVector keyvals = PersistentVector.EMPTY;
  		for(ISeq s = RT.seq(form); s != null; s = s.next())
- 			{
 -- 
 2.51.0
 
