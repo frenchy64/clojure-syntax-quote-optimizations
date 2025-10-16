@@ -1119,12 +1119,13 @@ public static class SyntaxQuoteReader extends AFn{
 						}
 						
 						// Test for self-evaluating constants (value)
-						if(!(val instanceof Keyword) &&
+						if(isUnquoteSplicing(val) ||
+						   (!(val instanceof Keyword) &&
 						   !(val == null) &&
 						   !(val instanceof Number) &&
 						   !(val instanceof String) &&
 						   !(val instanceof Boolean) &&
-						   !(val instanceof Character))
+						   !(val instanceof Character)))
 						{
 							hasDistinctConstantKeys = false;
 							break;

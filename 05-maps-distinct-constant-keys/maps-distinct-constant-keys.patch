@@ -1,4 +1,4 @@
-From 97dcdb24b0bc758e989b0a06bc542ea82159bb59 Mon Sep 17 00:00:00 2001
+From 1b2a9d794cec33d5231e51a44411d9f5dd2ae007 Mon Sep 17 00:00:00 2001
 From: GitHub Copilot <copilot@github.com>
 Date: Wed, 8 Oct 2025 22:45:26 +0000
 Subject: [PATCH] Optimize syntax-quote for maps with distinct constant keys
@@ -10,14 +10,14 @@ characters, nil) to use map literals instead of (apply hash-map ...).
 For example: `{:a 1 :b 2} => {:a 1 :b 2}
 instead of (apply hash-map (seq (concat ...)))
 ---
- src/jvm/clojure/lang/LispReader.java | 75 ++++++++++++++++++++++++++++
- 1 file changed, 75 insertions(+)
+ src/jvm/clojure/lang/LispReader.java | 76 ++++++++++++++++++++++++++++
+ 1 file changed, 76 insertions(+)
 
 diff --git a/src/jvm/clojure/lang/LispReader.java b/src/jvm/clojure/lang/LispReader.java
-index 8d7079cf..95596223 100644
+index 8d7079cf..d073b8c7 100644
 --- a/src/jvm/clojure/lang/LispReader.java
 +++ b/src/jvm/clojure/lang/LispReader.java
-@@ -1093,8 +1093,67 @@ public static class SyntaxQuoteReader extends AFn{
+@@ -1093,8 +1093,68 @@ public static class SyntaxQuoteReader extends AFn{
  			else if(form instanceof IPersistentMap)
  				{
  				IPersistentVector keyvals = flattenMap(form);
@@ -47,12 +47,13 @@ index 8d7079cf..95596223 100644
 +						}
 +						
 +						// Test for self-evaluating constants (value)
-+						if(!(val instanceof Keyword) &&
++						if(isUnquoteSplicing(val) ||
++						   (!(val instanceof Keyword) &&
 +						   !(val == null) &&
 +						   !(val instanceof Number) &&
 +						   !(val instanceof String) &&
 +						   !(val instanceof Boolean) &&
-+						   !(val instanceof Character))
++						   !(val instanceof Character)))
 +						{
 +							hasDistinctConstantKeys = false;
 +							break;
@@ -85,7 +86,7 @@ index 8d7079cf..95596223 100644
  			else if(form instanceof IPersistentVector)
  				{
  				ret = RT.list(APPLY, VECTOR, RT.list(SEQ, RT.cons(CONCAT, sqExpandList(((IPersistentVector) form).seq()))));
-@@ -1147,6 +1206,22 @@ public static class SyntaxQuoteReader extends AFn{
+@@ -1147,6 +1207,22 @@ public static class SyntaxQuoteReader extends AFn{
  		return ret.seq();
  	}
  
